@@ -140,7 +140,7 @@ createFiboSet(float lo, float hi, int startBar, int endBar, int fType, string fN
 
     for i = 0 to array.size(FIBO_LEVELS) - 1
         lvl   = array.get(FIBO_LEVELS, i)
-        price = dir == 1 ? hi - lvl * rng : lo + lvl * rng
+        price = dir == 1 ? lo + lvl * rng : hi - lvl * rng
         lbl   = array.get(FIBO_LABELS, i)
 
         isHL  = i == hlIndex
@@ -190,7 +190,7 @@ createSupportFiboSet(float lo, float hi, int startBar, int endBar, int dir) =>
 
     for i = 0 to array.size(SUP_FIBO_LEVELS) - 1
         lvl   = array.get(SUP_FIBO_LEVELS, i)
-        price = dir == 1 ? hi - lvl * rng : lo + lvl * rng
+        price = hi - lvl * rng
         lbl   = array.get(SUP_FIBO_LABELS, i)
 
         is0or100 = i == 0 or i == 6
@@ -368,8 +368,8 @@ switch smState
             prevConfirmedOvsLow := savedOvsLow
             prevConfirmedOvsBar := savedOvsBar
 
-            // Draw downside Fibo: OVB(left) → OVS(right), only in confirmed downtrend
-            if i_showFibo and canDrawFibo and trend == -1 and not na(confirmedOvbHigh) and confirmedOvbHigh > savedOvsLow
+            // Draw upside Fibo: OVB(left) → OVS(right), only when NOT in confirmed downtrend
+            if i_showFibo and canDrawFibo and trend != -1 and not na(confirmedOvbHigh) and confirmedOvbHigh > savedOvsLow
                 showThis = fType == FT_HAK_KHO ? i_showHK : i_showSB
 
                 // Delete PENDING Fibo of opposite direction
@@ -377,7 +377,7 @@ switch smState
                     toRemove = array.new<int>()
                     for i = 0 to array.size(fiboSets) - 1
                         fs = array.get(fiboSets, i)
-                        if fs.status == ST_PENDING and fs.fDir != -1
+                        if fs.status == ST_PENDING and fs.fDir != 1
                             deleteFiboSet(fs)
                             array.push(toRemove, i)
                     if array.size(toRemove) > 0
@@ -385,7 +385,7 @@ switch smState
                             array.remove(fiboSets, array.get(toRemove, j))
 
                 if showThis
-                    newFs = createFiboSet(savedOvsLow, confirmedOvbHigh, confirmedOvbBar, savedOvsBar, fType, fName, -1)
+                    newFs = createFiboSet(savedOvsLow, confirmedOvbHigh, confirmedOvbBar, savedOvsBar, fType, fName, 1)
                     array.push(fiboSets, newFs)
                     canDrawFibo := false
 
@@ -492,8 +492,8 @@ switch smState
             confirmedOvbHigh := ovbHigh
             confirmedOvbBar  := ovbBar
 
-            // Draw upside Fibo: OVS(left) → OVB(right), only when NOT in confirmed downtrend
-            if i_showFibo and canDrawFibo and trend != -1 and not na(prevConfirmedOvsLow) and ovbHigh > prevConfirmedOvsLow
+            // Draw downside Fibo: OVS(left) → OVB(right), only in confirmed downtrend
+            if i_showFibo and canDrawFibo and trend == -1 and not na(prevConfirmedOvsLow) and ovbHigh > prevConfirmedOvsLow
                 showThis = lastFType == FT_HAK_KHO ? i_showHK : i_showSB
 
                 // Delete PENDING Fibo of opposite direction
@@ -501,7 +501,7 @@ switch smState
                     toRemove = array.new<int>()
                     for i = 0 to array.size(fiboSets) - 1
                         fs = array.get(fiboSets, i)
-                        if fs.status == ST_PENDING and fs.fDir != 1
+                        if fs.status == ST_PENDING and fs.fDir != -1
                             deleteFiboSet(fs)
                             array.push(toRemove, i)
                     if array.size(toRemove) > 0
@@ -509,7 +509,7 @@ switch smState
                             array.remove(fiboSets, array.get(toRemove, j))
 
                 if showThis
-                    newFs = createFiboSet(prevConfirmedOvsLow, ovbHigh, prevConfirmedOvsBar, ovbBar, lastFType, lastFName, 1)
+                    newFs = createFiboSet(prevConfirmedOvsLow, ovbHigh, prevConfirmedOvsBar, ovbBar, lastFType, lastFName, -1)
                     array.push(fiboSets, newFs)
                     canDrawFibo := false
 
