@@ -194,6 +194,7 @@ var array<label> trendLabels = array.new<label>()
 
 var int    lastFType = FT_HAK_KHO
 var string lastFName = "HK"
+var bool   sbDrawn   = false
 
 var float patPivHi    = na
 var int   patPivHiBar = na
@@ -290,9 +291,12 @@ switch smState
                 curOvsLbl := na
 
             // Determine Fibo type: Somboon (higher low) or Hak Kho
+            // SB allowed only once; after the first SB, all subsequent sets are HK
             isHigherLow = not na(prevConfirmedOvsLow) and savedOvsLow > prevConfirmedOvsLow
-            fType = isHigherLow ? FT_SOMBOON : FT_HAK_KHO
-            fName = isHigherLow ? "SB" : "HK"
+            fType = isHigherLow and not sbDrawn ? FT_SOMBOON : FT_HAK_KHO
+            fName = isHigherLow and not sbDrawn ? "SB" : "HK"
+            if fType == FT_SOMBOON
+                sbDrawn := true
             lastFType := fType
             lastFName := fName
 
