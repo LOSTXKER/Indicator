@@ -1,0 +1,255 @@
+// This Pine Script™ is subject to the terms of the Mozilla Public License 2.0
+// https://mozilla.org/MPL/2.0/
+// © Auto Fibo from Stochastic OVS/OVB
+
+//@version=6
+indicator("Auto Fibo Stoch", overlay = true, max_lines_count = 500, max_labels_count = 500)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inputs
+// ─────────────────────────────────────────────────────────────────────────────
+
+grpStoch   = "Stochastic"
+i_stochTF  = input.timeframe("", "Timeframe",  group = grpStoch)
+i_kPeriod  = input.int(9,   "K Period",  minval = 1,  group = grpStoch)
+i_dPeriod  = input.int(3,   "D Period",  minval = 1,  group = grpStoch)
+i_slowing  = input.int(3,   "Slowing",   minval = 1,  group = grpStoch)
+i_ovsLevel = input.int(20,  "OVS Level", minval = 1,  maxval = 49, group = grpStoch)
+i_ovbLevel = input.int(80,  "OVB Level", minval = 51, maxval = 99, group = grpStoch)
+
+grpFibo    = "Fibonacci"
+i_maxSets    = input.int(3,   "Max Fibo Sets",     minval = 1, maxval = 10, group = grpFibo)
+
+grpDisplay = "Display"
+i_maxMarkers = input.int(30, "Max Marker Pairs", minval = 5, maxval = 100, group = grpDisplay)
+i_showZones  = input.bool(false, "Show Zone Background", group = grpDisplay)
+
+grpColors  = "Colors"
+i_colPending = input.color(color.new(#FFD700, 10), "Fibo Pending",  group = grpColors)
+i_colValid   = input.color(color.new(#00E676, 10), "Fibo Valid",    group = grpColors)
+i_col161     = input.color(color.new(#00E676,  0), "161.8% Line",   group = grpColors)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────────────────────
+
+var int SM_WAIT_OVS = 0
+var int SM_WAIT_OVB = 1
+
+var int ST_PENDING = 0
+var int ST_VALID   = 1
+
+var float[] FIBO_LEVELS = array.from(
+     0.0,   0.236,  0.382,  0.5,   0.618,  0.786,
+     1.0,   1.272,  1.618,  2.0,   2.618,  4.236)
+
+var string[] FIBO_LABELS = array.from(
+     "0%",    "23.6%", "38.2%", "50%",  "61.8%", "78.6%",
+     "100%",  "127.2%","161.8%","200%", "261.8%","423.6%")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UDT: FiboSet
+// ─────────────────────────────────────────────────────────────────────────────
+
+type FiboSet
+    float   ovs_low
+    float   ovb_high
+    int     status
+    line[]  ln
+    label[] lb
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stochastic Calculation (on selected timeframe)
+// ─────────────────────────────────────────────────────────────────────────────
+
+kRaw = ta.stoch(close, high, low, i_kPeriod)
+kVal = ta.sma(kRaw, i_slowing)
+dVal = ta.sma(kVal, i_dPeriod)
+
+[kTF, dTF, hiTF, loTF] = request.security(syminfo.tickerid, i_stochTF, [kVal, dVal, high, low])
+
+inOvs = kTF < i_ovsLevel
+inOvb = kTF > i_ovbLevel
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fibo Helper Functions
+// ─────────────────────────────────────────────────────────────────────────────
+
+createFiboSet(float lo, float hi, int startBar, int endBar) =>
+    fs = FiboSet.new()
+    fs.ovs_low  := lo
+    fs.ovb_high := hi
+    fs.status   := ST_PENDING
+    fs.ln := array.new<line>()
+    fs.lb := array.new<label>()
+
+    rng = hi - lo
+    x1  = startBar
+    x2  = endBar
+
+    for i = 0 to array.size(FIBO_LEVELS) - 1
+        lvl   = array.get(FIBO_LEVELS, i)
+        price = lo + lvl * rng
+        lbl   = array.get(FIBO_LABELS, i)
+
+        is161 = i == 8
+        is423 = i == 11
+        is100 = i == 6
+
+        col = is161 ? i_col161 : i_colPending
+        w   = (is100 or is161 or is423) ? 2 : 1
+        sty = is161 ? line.style_solid : line.style_dotted
+
+        newLine  = line.new(x1, price, x2, price, color = col, width = w, style = sty)
+        newLabel = label.new(x2, price, lbl + " (" + str.tostring(price, format.mintick) + ")",
+             style = label.style_label_left, color = color.new(color.black, 100),
+             textcolor = col, size = size.small)
+
+        array.push(fs.ln, newLine)
+        array.push(fs.lb, newLabel)
+
+    fs
+
+deleteFiboSet(FiboSet fs) =>
+    for i = 0 to array.size(fs.ln) - 1
+        line.delete(array.get(fs.ln, i))
+        label.delete(array.get(fs.lb, i))
+
+recolourFiboSet(FiboSet fs, color col) =>
+    for i = 0 to array.size(fs.ln) - 1
+        line.set_color(array.get(fs.ln, i), col)
+        label.set_textcolor(array.get(fs.lb, i), col)
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// State Machine Variables
+// ─────────────────────────────────────────────────────────────────────────────
+
+var int   smState = SM_WAIT_OVS
+var float ovsLow  = na
+var int   ovsBar  = na
+var float ovbHigh = na
+var int   ovbBar  = na
+
+var label curOvsLbl = na
+var label curOvbLbl = na
+var array<label> allMarkers = array.new<label>()
+
+var float confirmedOvbHigh = na
+var int   confirmedOvbBar  = na
+var array<FiboSet> fiboSets = array.new<FiboSet>()
+
+// ─────────────────────────────────────────────────────────────────────────────
+// State Machine: zone-based OVS / OVB detection + Fibo drawing
+// ─────────────────────────────────────────────────────────────────────────────
+
+switch smState
+    SM_WAIT_OVS =>
+        checkLo = math.min(low, loTF)
+        if na(ovsLow) or checkLo < ovsLow
+            ovsLow := checkLo
+            ovsBar := bar_index
+            if na(curOvsLbl)
+                curOvsLbl := label.new(bar_index, checkLo, "S",
+                     style = label.style_diamond, color = color.aqua,
+                     textcolor = color.aqua, size = size.tiny)
+            else
+                label.set_x(curOvsLbl, bar_index)
+                label.set_y(curOvsLbl, checkLo)
+
+        if inOvb and not na(ovsLow)
+            savedOvsLow = ovsLow
+            savedOvsBar = ovsBar
+
+            if not na(curOvsLbl)
+                array.push(allMarkers, curOvsLbl)
+                curOvsLbl := na
+
+            // Delete PENDING Fibo sets from older cycles FIRST
+            if array.size(fiboSets) > 0
+                toRemove = array.new<int>()
+                for i = 0 to array.size(fiboSets) - 1
+                    fs = array.get(fiboSets, i)
+                    if fs.status == ST_PENDING
+                        deleteFiboSet(fs)
+                        array.push(toRemove, i)
+                if array.size(toRemove) > 0
+                    for j = array.size(toRemove) - 1 to 0
+                        array.remove(fiboSets, array.get(toRemove, j))
+
+            // THEN draw new Fibo from confirmed OVB → this confirmed OVS
+            if not na(confirmedOvbHigh) and confirmedOvbHigh > savedOvsLow
+                newFs = createFiboSet(savedOvsLow, confirmedOvbHigh, confirmedOvbBar, savedOvsBar)
+                array.push(fiboSets, newFs)
+
+                while array.size(fiboSets) > i_maxSets
+                    deleteFiboSet(array.get(fiboSets, 0))
+                    array.remove(fiboSets, 0)
+
+            smState := SM_WAIT_OVB
+            ovbHigh := math.max(high, hiTF)
+            ovbBar  := bar_index
+            ovsLow  := na
+            ovsBar  := na
+            curOvbLbl := label.new(bar_index, ovbHigh, "B",
+                 style = label.style_diamond, color = color.orange,
+                 textcolor = color.orange, size = size.tiny)
+
+    SM_WAIT_OVB =>
+        checkHi = math.max(high, hiTF)
+        if na(ovbHigh) or checkHi > ovbHigh
+            ovbHigh := checkHi
+            ovbBar  := bar_index
+            if na(curOvbLbl)
+                curOvbLbl := label.new(bar_index, checkHi, "B",
+                     style = label.style_diamond, color = color.orange,
+                     textcolor = color.orange, size = size.tiny)
+            else
+                label.set_x(curOvbLbl, bar_index)
+                label.set_y(curOvbLbl, checkHi)
+
+        if inOvs
+            confirmedOvbHigh := ovbHigh
+            confirmedOvbBar  := ovbBar
+
+            if not na(curOvbLbl)
+                array.push(allMarkers, curOvbLbl)
+                curOvbLbl := na
+
+            smState := SM_WAIT_OVS
+            ovsLow  := math.min(low, loTF)
+            ovsBar  := bar_index
+            ovbHigh := na
+            ovbBar  := na
+            curOvsLbl := label.new(bar_index, ovsLow, "S",
+                 style = label.style_diamond, color = color.aqua,
+                 textcolor = color.aqua, size = size.tiny)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-bar: extend Fibo lines + validate (close > 161.8%)
+// ─────────────────────────────────────────────────────────────────────────────
+
+if array.size(fiboSets) > 0
+    for i = 0 to array.size(fiboSets) - 1
+        fs = array.get(fiboSets, i)
+        if fs.status == ST_PENDING
+            rng    = fs.ovb_high - fs.ovs_low
+            lvl161 = fs.ovs_low + 1.618 * rng
+            if close > lvl161
+                fs.status := ST_VALID
+                recolourFiboSet(fs, i_colValid)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cleanup old markers
+// ─────────────────────────────────────────────────────────────────────────────
+
+while array.size(allMarkers) > i_maxMarkers * 2
+    label.delete(array.get(allMarkers, 0))
+    array.remove(allMarkers, 0)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Zone Visualization (optional background)
+// ─────────────────────────────────────────────────────────────────────────────
+
+bgcolor(i_showZones and inOvs ? color.new(color.blue, 88) : na, title = "OVS Zone")
+bgcolor(i_showZones and inOvb ? color.new(color.red, 88) : na,  title = "OVB Zone")
