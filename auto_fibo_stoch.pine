@@ -36,6 +36,12 @@ i_pivotLen    = input.int(2, "Pivot Length", minval = 1, maxval = 5, group = grp
 grpTrend     = "Swing Trend"
 i_showTrend  = input.bool(true, "Show Trend Labels", group = grpTrend)
 
+grpRsiCut    = "RSI Mountain Cut"
+i_rsiCutEnabled = input.bool(true,  "Enable RSI Cut",  group = grpRsiCut)
+i_rsiPeriod     = input.int(14,     "RSI Period",      minval = 1, group = grpRsiCut)
+i_rsiOvsLevel   = input.int(30,     "RSI OVS Level",   minval = 1,  maxval = 49, group = grpRsiCut)
+i_rsiOvbLevel   = input.int(70,     "RSI OVB Level",   minval = 51, maxval = 99, group = grpRsiCut)
+
 grpDisplay = "Display"
 i_showMarkers = input.bool(true,  "Show OVS/OVB Markers", group = grpDisplay)
 i_maxMarkers  = input.int(30, "Max Marker Pairs", minval = 5, maxval = 100, group = grpDisplay)
@@ -92,6 +98,16 @@ dVal = ta.sma(kVal, i_dPeriod)
 
 inOvs = kTF < i_ovsLevel
 inOvb = kTF > i_ovbLevel
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RSI Calculation (for Mountain Cut)
+// ─────────────────────────────────────────────────────────────────────────────
+
+rsiRaw = ta.rsi(close, i_rsiPeriod)
+rsiTF  = request.security(syminfo.tickerid, i_stochTF, rsiRaw)
+
+rsiInOvs = rsiTF < i_rsiOvsLevel
+rsiInOvb = rsiTF > i_rsiOvbLevel
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fibo Helper Functions
@@ -168,6 +184,7 @@ var array<label> allMarkers = array.new<label>()
 var float confirmedOvbHigh    = na
 var int   confirmedOvbBar    = na
 var float prevConfirmedOvsLow = na
+var int   prevConfirmedOvsBar = na
 var array<FiboSet> fiboSets = array.new<FiboSet>()
 
 var int   trend        = 0
@@ -175,11 +192,61 @@ var float prevOvbHigh  = na
 var bool  canDrawFibo = true
 var array<label> trendLabels = array.new<label>()
 
+var int    lastFType = FT_HAK_KHO
+var string lastFName = "HK"
+
 var float patPivHi    = na
 var int   patPivHiBar = na
 var float patPivLo    = na
 var int   patPivLoBar = na
 var array<line> patLines = array.new<line>()
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Daily high/low (same calendar day as current bar, for RSI cut line span)
+// ─────────────────────────────────────────────────────────────────────────────
+
+var float daySessHi = na
+var float daySessLo = na
+newDay = ta.change(time("D")) != 0
+if bar_index == 0 or newDay
+    daySessHi := high
+    daySessLo := low
+else
+    daySessHi := math.max(daySessHi, high)
+    daySessLo := math.min(daySessLo, low)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RSI Mountain Cut State Machine
+// ─────────────────────────────────────────────────────────────────────────────
+
+var int  RSI_WAIT_FIRST_OVS  = 0
+var int  RSI_WAIT_OVB        = 1
+var int  RSI_WAIT_SECOND_OVS = 2
+
+var int   rsiCutState = RSI_WAIT_FIRST_OVS
+var bool  rsiCutDone  = false
+var line  rsiCutLine  = na
+var label rsiCutLbl   = na
+
+if i_rsiCutEnabled
+    if rsiCutState == RSI_WAIT_FIRST_OVS and rsiInOvs
+        rsiCutState := RSI_WAIT_OVB
+    else if rsiCutState == RSI_WAIT_OVB and rsiInOvb
+        rsiCutState := RSI_WAIT_SECOND_OVS
+    else if rsiCutState == RSI_WAIT_SECOND_OVS and rsiInOvs
+        rsiCutDone := true
+        rsiCutState := RSI_WAIT_OVB
+
+        // Update cut marker (delete old, place new)
+        if not na(rsiCutLine)
+            line.delete(rsiCutLine)
+        if not na(rsiCutLbl)
+            label.delete(rsiCutLbl)
+        rsiCutLine := line.new(bar_index, daySessLo, bar_index, daySessHi, xloc = xloc.bar_index, extend = extend.none,
+             color = color.new(color.purple, 30), width = 1, style = line.style_dashed)
+        rsiCutLbl := label.new(bar_index, daySessLo, "✂ RSI CUT",
+             style = label.style_label_up, color = color.new(color.purple, 10),
+             textcolor = color.white, size = size.small)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pivot Detection (must run every bar, outside switch)
@@ -226,6 +293,8 @@ switch smState
             isHigherLow = not na(prevConfirmedOvsLow) and savedOvsLow > prevConfirmedOvsLow
             fType = isHigherLow ? FT_SOMBOON : FT_HAK_KHO
             fName = isHigherLow ? "SB" : "HK"
+            lastFType := fType
+            lastFName := fName
 
             // Swing Trend: check OVS for higher/lower low
             if i_showTrend and not na(prevConfirmedOvsLow)
@@ -257,10 +326,10 @@ switch smState
                     trend := 1
 
             prevConfirmedOvsLow := savedOvsLow
+            prevConfirmedOvsBar := savedOvsBar
 
-            // Draw Fibo when chaining allows (no trend gate, first set draws freely)
-            if i_showFibo and canDrawFibo and not na(confirmedOvbHigh) and confirmedOvbHigh > savedOvsLow
-                fiboDir = trend == -1 ? -1 : 1
+            // Draw upside Fibo: OVB(left) → OVS(right), only when NOT in confirmed downtrend
+            if i_showFibo and canDrawFibo and trend != -1 and not na(confirmedOvbHigh) and confirmedOvbHigh > savedOvsLow
                 showThis = fType == FT_HAK_KHO ? i_showHK : i_showSB
 
                 // Delete PENDING Fibo of opposite direction
@@ -268,7 +337,7 @@ switch smState
                     toRemove = array.new<int>()
                     for i = 0 to array.size(fiboSets) - 1
                         fs = array.get(fiboSets, i)
-                        if fs.status == ST_PENDING and fs.fDir != fiboDir
+                        if fs.status == ST_PENDING and fs.fDir != 1
                             deleteFiboSet(fs)
                             array.push(toRemove, i)
                     if array.size(toRemove) > 0
@@ -276,7 +345,7 @@ switch smState
                             array.remove(fiboSets, array.get(toRemove, j))
 
                 if showThis
-                    newFs = createFiboSet(savedOvsLow, confirmedOvbHigh, confirmedOvbBar, savedOvsBar, fType, fName, fiboDir)
+                    newFs = createFiboSet(savedOvsLow, confirmedOvbHigh, confirmedOvbBar, savedOvsBar, fType, fName, 1)
                     array.push(fiboSets, newFs)
                     canDrawFibo := false
 
@@ -374,6 +443,31 @@ switch smState
             prevOvbHigh      := ovbHigh
             confirmedOvbHigh := ovbHigh
             confirmedOvbBar  := ovbBar
+
+            // Draw downside Fibo: OVS(left) → OVB(right), only in confirmed downtrend
+            if i_showFibo and canDrawFibo and trend == -1 and not na(prevConfirmedOvsLow) and ovbHigh > prevConfirmedOvsLow
+                showThis = lastFType == FT_HAK_KHO ? i_showHK : i_showSB
+
+                // Delete PENDING Fibo of opposite direction
+                if array.size(fiboSets) > 0
+                    toRemove = array.new<int>()
+                    for i = 0 to array.size(fiboSets) - 1
+                        fs = array.get(fiboSets, i)
+                        if fs.status == ST_PENDING and fs.fDir != -1
+                            deleteFiboSet(fs)
+                            array.push(toRemove, i)
+                    if array.size(toRemove) > 0
+                        for j = array.size(toRemove) - 1 to 0
+                            array.remove(fiboSets, array.get(toRemove, j))
+
+                if showThis
+                    newFs = createFiboSet(prevConfirmedOvsLow, ovbHigh, prevConfirmedOvsBar, ovbBar, lastFType, lastFName, -1)
+                    array.push(fiboSets, newFs)
+                    canDrawFibo := false
+
+                    while array.size(fiboSets) > i_maxSets
+                        deleteFiboSet(array.get(fiboSets, 0))
+                        array.remove(fiboSets, 0)
 
             if not na(curOvbLbl)
                 array.push(allMarkers, curOvbLbl)
