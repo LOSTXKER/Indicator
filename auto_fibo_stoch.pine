@@ -20,6 +20,12 @@ i_ovbLevel = input.int(80,  "OVB Level", minval = 51, maxval = 99, group = grpSt
 grpFibo    = "Fibonacci"
 i_maxSets    = input.int(3,   "Max Fibo Sets",     minval = 1, maxval = 10, group = grpFibo)
 
+grpEMA     = "EMA"
+i_emaFast  = input.int(14, "Fast EMA",  minval = 1, group = grpEMA)
+i_emaSlow  = input.int(60, "Slow EMA",  minval = 1, group = grpEMA)
+i_showEMA  = input.bool(true, "Show EMA Lines", group = grpEMA)
+i_showEMAbg = input.bool(true, "Show EMA Cross Background", group = grpEMA)
+
 grpDisplay = "Display"
 i_maxMarkers = input.int(30, "Max Marker Pairs", minval = 5, maxval = 100, group = grpDisplay)
 i_showZones  = input.bool(false, "Show Zone Background", group = grpDisplay)
@@ -253,3 +259,16 @@ while array.size(allMarkers) > i_maxMarkers * 2
 
 bgcolor(i_showZones and inOvs ? color.new(color.blue, 88) : na, title = "OVS Zone")
 bgcolor(i_showZones and inOvb ? color.new(color.red, 88) : na,  title = "OVB Zone")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EMA 14 / 60 + Cross Background
+// ─────────────────────────────────────────────────────────────────────────────
+
+emaFast = ta.ema(close, i_emaFast)
+emaSlow = ta.ema(close, i_emaSlow)
+
+pFast = plot(i_showEMA ? emaFast : na, "EMA Fast", color.new(color.yellow, 0), 2)
+pSlow = plot(i_showEMA ? emaSlow : na, "EMA Slow", color.new(#FF9800, 0), 2)
+
+cloudCol = emaFast > emaSlow ? color.new(color.green, 85) : color.new(color.red, 85)
+fill(pFast, pSlow, i_showEMAbg ? cloudCol : na, title = "EMA Cloud")
