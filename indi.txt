@@ -149,15 +149,15 @@ createFiboSet(float lo, float hi, int startBar, int endBar, int fType, string fN
         is161 = i == 8
 
         col = isHL ? i_col161 : baseCol
-        w   = (is100 or is161 or is423 or isHL) ? 2 : 1
-        sty = isHL ? line.style_solid : line.style_dotted
+        w   = (is100 or is161 or is423 or isHL) ? 3 : 2
+        sty = isHL ? line.style_solid : line.style_dashed
 
         dirTag = dir == 1 ? "▲" : "▼"
-        prefix = fName + dirTag + " "
+        prefix = "⏳ " + fName + dirTag + " "
         newLine  = line.new(x1, price, x2, price, color = col, width = w, style = sty)
         newLabel = label.new(x2, price, prefix + lbl + " (" + str.tostring(price, format.mintick) + ")",
              style = label.style_label_left, color = color.new(color.black, 100),
-             textcolor = col, size = size.small)
+             textcolor = col, size = size.normal)
 
         array.push(fs.ln, newLine)
         array.push(fs.lb, newLabel)
@@ -173,6 +173,32 @@ recolourFiboSet(FiboSet fs, color col) =>
     for i = 0 to array.size(fs.ln) - 1
         line.set_color(array.get(fs.ln, i), col)
         label.set_textcolor(array.get(fs.lb, i), col)
+
+makePendingStyle(FiboSet fs, color col) =>
+    for i = 0 to array.size(fs.ln) - 1
+        l = array.get(fs.ln, i)
+        lb = array.get(fs.lb, i)
+        line.set_color(l, col)
+        line.set_width(l, 3)
+        line.set_style(l, line.style_dashed)
+        label.set_textcolor(lb, col)
+        label.set_size(lb, size.normal)
+        txt = label.get_text(lb)
+        if not str.startswith(txt, "⏳ ")
+            label.set_text(lb, "⏳ " + txt)
+
+confirmFiboSet(FiboSet fs, color col) =>
+    for i = 0 to array.size(fs.ln) - 1
+        l = array.get(fs.ln, i)
+        lb = array.get(fs.lb, i)
+        line.set_color(l, col)
+        line.set_width(l, 1)
+        line.set_style(l, line.style_dotted)
+        label.set_textcolor(lb, col)
+        label.set_size(lb, size.small)
+        txt = label.get_text(lb)
+        if str.startswith(txt, "⏳ ")
+            label.set_text(lb, str.replace(txt, "⏳ ", "", 0))
 
 createSupportFiboSet(float lo, float hi, int startBar, int endBar, int dir) =>
     fs = FiboSet.new()
@@ -311,9 +337,9 @@ switch smState
             ovsBar := bar_index
             if i_showMarkers
                 if na(curOvsLbl)
-                    curOvsLbl := label.new(bar_index, checkLo, "S",
-                         style = label.style_diamond, color = color.aqua,
-                         textcolor = color.aqua, size = size.tiny)
+                    curOvsLbl := label.new(bar_index, checkLo, "⏳ S",
+                         style = label.style_label_up, color = color.new(color.aqua, 30),
+                         textcolor = color.white, size = size.small)
                 else
                     label.set_x(curOvsLbl, bar_index)
                     label.set_y(curOvsLbl, checkLo)
@@ -323,6 +349,11 @@ switch smState
             savedOvsBar = ovsBar
 
             if not na(curOvsLbl)
+                label.set_text(curOvsLbl, "S")
+                label.set_style(curOvsLbl, label.style_diamond)
+                label.set_color(curOvsLbl, color.aqua)
+                label.set_textcolor(curOvsLbl, color.aqua)
+                label.set_size(curOvsLbl, size.tiny)
                 array.push(allMarkers, curOvsLbl)
                 curOvsLbl := na
 
@@ -427,9 +458,9 @@ switch smState
             ovsLow  := na
             ovsBar  := na
             if i_showMarkers
-                curOvbLbl := label.new(bar_index, ovbHigh, "B",
-                     style = label.style_diamond, color = color.orange,
-                     textcolor = color.orange, size = size.tiny)
+                curOvbLbl := label.new(bar_index, ovbHigh, "⏳ B",
+                     style = label.style_label_down, color = color.new(color.orange, 30),
+                     textcolor = color.white, size = size.small)
 
     SM_WAIT_OVB =>
         checkHi = math.max(high, hiTF)
@@ -438,9 +469,9 @@ switch smState
             ovbBar  := bar_index
             if i_showMarkers
                 if na(curOvbLbl)
-                    curOvbLbl := label.new(bar_index, checkHi, "B",
-                         style = label.style_diamond, color = color.orange,
-                         textcolor = color.orange, size = size.tiny)
+                    curOvbLbl := label.new(bar_index, checkHi, "⏳ B",
+                         style = label.style_label_down, color = color.new(color.orange, 30),
+                         textcolor = color.white, size = size.small)
                 else
                     label.set_x(curOvbLbl, bar_index)
                     label.set_y(curOvbLbl, checkHi)
@@ -526,6 +557,11 @@ switch smState
                     array.remove(supFiboSets, 0)
 
             if not na(curOvbLbl)
+                label.set_text(curOvbLbl, "B")
+                label.set_style(curOvbLbl, label.style_diamond)
+                label.set_color(curOvbLbl, color.orange)
+                label.set_textcolor(curOvbLbl, color.orange)
+                label.set_size(curOvbLbl, size.tiny)
                 array.push(allMarkers, curOvbLbl)
                 curOvbLbl := na
 
@@ -540,9 +576,9 @@ switch smState
             ovbHigh := na
             ovbBar  := na
             if i_showMarkers
-                curOvsLbl := label.new(bar_index, ovsLow, "S",
-                     style = label.style_diamond, color = color.aqua,
-                     textcolor = color.aqua, size = size.tiny)
+                curOvsLbl := label.new(bar_index, ovsLow, "⏳ S",
+                     style = label.style_label_up, color = color.new(color.aqua, 30),
+                     textcolor = color.white, size = size.small)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Per-bar: Pending Support Fibo (preview of next support Fibo)
@@ -555,11 +591,11 @@ if array.size(pendingSupArr) > 0
 if i_showSupFibo
     if smState == SM_WAIT_OVB and trend != -1 and not na(prevConfirmedOvsLow) and not na(ovbHigh) and ovbHigh > prevConfirmedOvsLow
         pSup = createSupportFiboSet(prevConfirmedOvsLow, ovbHigh, prevConfirmedOvsBar, ovbBar, 1)
-        recolourFiboSet(pSup, i_colPending)
+        makePendingStyle(pSup, i_colPending)
         array.push(pendingSupArr, pSup)
     else if smState == SM_WAIT_OVS and trend == -1 and not na(confirmedOvbHigh) and not na(ovsLow) and confirmedOvbHigh > ovsLow
         pSup = createSupportFiboSet(ovsLow, confirmedOvbHigh, confirmedOvbBar, ovsBar, -1)
-        recolourFiboSet(pSup, i_colPending)
+        makePendingStyle(pSup, i_colPending)
         array.push(pendingSupArr, pSup)
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -586,23 +622,23 @@ if array.size(fiboSets) > 0
                 if fs.fiboType == FT_SOMBOON
                     if high > fs.ovs_low + 1.0 * rng
                         fs.status := ST_VALID
-                        recolourFiboSet(fs, i_colValid)
+                        confirmFiboSet(fs, i_colValid)
                         canDrawFibo := true
                 else
                     if close > fs.ovs_low + 1.618 * rng
                         fs.status := ST_VALID
-                        recolourFiboSet(fs, i_colValid)
+                        confirmFiboSet(fs, i_colValid)
                         canDrawFibo := true
             else
                 if fs.fiboType == FT_SOMBOON
                     if low < fs.ovb_high - 1.0 * rng
                         fs.status := ST_VALID
-                        recolourFiboSet(fs, i_colValid)
+                        confirmFiboSet(fs, i_colValid)
                         canDrawFibo := true
                 else
                     if close < fs.ovb_high - 1.618 * rng
                         fs.status := ST_VALID
-                        recolourFiboSet(fs, i_colValid)
+                        confirmFiboSet(fs, i_colValid)
                         canDrawFibo := true
 
     if array.size(toDestroy) > 0
@@ -666,3 +702,59 @@ pSlow = plot(i_showEMA ? emaSlow : na, "EMA Slow", color.new(#FF9800, 0), 2)
 
 cloudCol = emaFast > emaSlow ? color.new(color.green, 85) : color.new(color.red, 85)
 fill(pFast, pSlow, i_showEMAbg ? cloudCol : na, title = "EMA Cloud")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Status Panel (bottom-right table)
+// ─────────────────────────────────────────────────────────────────────────────
+
+if barstate.islast
+    var table statusTbl = table.new(position.bottom_right, 2, 6,
+         bgcolor = color.new(#1E1E1E, 0), border_color = color.new(#333333, 0), border_width = 1,
+         frame_color = color.new(#555555, 0), frame_width = 2)
+
+    hSz = size.normal
+    vSz = size.large
+
+    // ── เทรน ──
+    table.cell(statusTbl, 0, 0, "เทรน", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
+    trendTxt = trend == 1 ? "🟢 ขาขึ้น" : trend == -1 ? "🔴 ขาลง" : trend == 2 ? "🟡 เตรียมขึ้น" : trend == -2 ? "🟡 เตรียมลง" : "⚪ ยังไม่ชัด"
+    trendCol = trend == 1 ? color.green : trend == -1 ? color.red : trend == 2 or trend == -2 ? color.yellow : color.gray
+    table.cell(statusTbl, 1, 0, trendTxt, text_color = trendCol, text_size = vSz, text_halign = text.align_left)
+
+    // ── กำลังหา ──
+    table.cell(statusTbl, 0, 1, "กำลังหา", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
+    smTxt = smState == SM_WAIT_OVS ? "🔻 จุดต่ำสุด (OVS)" : "🔺 จุดสูงสุด (OVB)"
+    smCol = smState == SM_WAIT_OVS ? color.aqua : color.orange
+    table.cell(statusTbl, 1, 1, smTxt, text_color = smCol, text_size = vSz, text_halign = text.align_left)
+
+    // ── EMA ──
+    table.cell(statusTbl, 0, 2, "EMA", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
+    emaTxt = emaFast > emaSlow ? "🟢 เหนือเมฆ (ขาขึ้น)" : "🔴 ใต้เมฆ (ขาลง)"
+    emaCol = emaFast > emaSlow ? color.green : color.red
+    table.cell(statusTbl, 1, 2, emaTxt, text_color = emaCol, text_size = vSz, text_halign = text.align_left)
+
+    // ── Fibo หาเป้า ──
+    fiboPending = 0
+    fiboValid   = 0
+    for i = 0 to array.size(fiboSets) > 0 ? array.size(fiboSets) - 1 : na
+        if not na(i)
+            fs = array.get(fiboSets, i)
+            if fs.status == ST_PENDING
+                fiboPending += 1
+            else
+                fiboValid += 1
+    table.cell(statusTbl, 0, 3, "Fibo หาเป้า", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
+    fiboTxt = "ยืนยัน " + str.tostring(fiboValid) + " ชุด    รอยืนยัน " + str.tostring(fiboPending) + " ชุด"
+    table.cell(statusTbl, 1, 3, fiboTxt, text_color = fiboPending > 0 ? i_colPending : i_colValid, text_size = vSz, text_halign = text.align_left)
+
+    // ── Fibo แนวรับ ──
+    supCount   = array.size(supFiboSets)
+    supPending = array.size(pendingSupArr)
+    table.cell(statusTbl, 0, 4, "Fibo แนวรับ", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
+    supTxt = "ยืนยัน " + str.tostring(supCount) + " ชุด    รอยืนยัน " + str.tostring(supPending) + " ชุด"
+    table.cell(statusTbl, 1, 4, supTxt, text_color = supPending > 0 ? i_colPending : i_colSup, text_size = vSz, text_halign = text.align_left)
+
+    // ── TF ──
+    table.cell(statusTbl, 0, 5, "Timeframe", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
+    tfTxt = i_stochTF == "" ? timeframe.period : i_stochTF
+    table.cell(statusTbl, 1, 5, tfTxt, text_color = color.white, text_size = vSz, text_halign = text.align_left)
