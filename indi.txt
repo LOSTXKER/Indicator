@@ -9,53 +9,58 @@ indicator("Auto Fibo Stoch", overlay = true, max_lines_count = 500, max_labels_c
 // Inputs
 // ─────────────────────────────────────────────────────────────────────────────
 
-grpStoch   = "Stochastic"
-i_stochTF  = input.timeframe("", "Timeframe",  group = grpStoch)
-i_kPeriod  = input.int(9,   "K Period",  minval = 1,  group = grpStoch)
-i_dPeriod  = input.int(3,   "D Period",  minval = 1,  group = grpStoch)
-i_slowing  = input.int(3,   "Slowing",   minval = 1,  group = grpStoch)
-i_ovsLevel = input.int(20,  "OVS Level", minval = 1,  maxval = 49, group = grpStoch)
-i_ovbLevel = input.int(80,  "OVB Level", minval = 51, maxval = 99, group = grpStoch)
+// ─── ⚙️ ตั้งค่าหลัก ───
+grpCore    = "⚙️ Stochastic"
+i_stochTF  = input.timeframe("", "Timeframe",  group = grpCore)
+i_kPeriod  = input.int(9,   "K Period",  minval = 1,  group = grpCore)
+i_slowing  = input.int(3,   "Slowing",   minval = 1,  group = grpCore)
+i_ovsLevel = input.int(20,  "OVS Level", minval = 1,  maxval = 49, group = grpCore)
+i_ovbLevel = input.int(80,  "OVB Level", minval = 51, maxval = 99, group = grpCore)
 
-grpFibo    = "Fibonacci"
-i_showFibo   = input.bool(true, "Show Fibo",         group = grpFibo)
-i_showHK     = input.bool(true, "Show Hak Kho (HK)", group = grpFibo)
-i_showSB     = input.bool(true, "Show Somboon (SB)", group = grpFibo)
-i_maxSets    = input.int(3,   "Max Fibo Sets",     minval = 1, maxval = 10, group = grpFibo)
+// ─── 🎯 เป้าหมาย (Target) ───
+grpTarget  = "🎯 Target — Fibo หาเป้า"
+i_showFibo   = input.bool(true, "แสดง Fibo หาเป้า",  group = grpTarget)
+i_showHK     = input.bool(true, "แสดง Hak Kho (HK)", group = grpTarget)
+i_showSB     = input.bool(true, "แสดง Somboon (SB)", group = grpTarget)
+i_maxSets    = input.int(3,   "จำนวนชุดสูงสุด",     minval = 1, maxval = 10, group = grpTarget)
 
-grpSupFibo   = "Fibo Support"
-i_showSupFibo = input.bool(true, "Show Support Fibo", group = grpSupFibo)
-i_maxSupSets  = input.int(3,   "Max Support Sets",  minval = 1, maxval = 10, group = grpSupFibo)
-i_colSup      = input.color(color.new(#42A5F5, 10), "Support Fibo Color", group = grpSupFibo)
+// ─── 📍 จุดเข้า (Entry) ───
+grpEntry   = "📍 Entry — Fibo แนวรับ"
+i_showSupFibo = input.bool(true, "แสดง Fibo แนวรับ",  group = grpEntry)
+i_maxSupSets  = input.int(3,   "จำนวนชุดสูงสุด",    minval = 1, maxval = 10, group = grpEntry)
+i_colSup      = input.color(color.new(#42A5F5, 10), "สี Fibo แนวรับ", group = grpEntry)
 
-grpEMA     = "EMA"
+grpSubWave      = "📍 Entry — Sub Wave"
+i_showSubWave   = input.bool(true,  "แสดง Sub Wave Fibo",          group = grpSubWave)
+i_subWaveTF     = input.timeframe("", "Sub Wave TF (auto ถ้าว่าง)", group = grpSubWave)
+i_colSubWave    = input.color(color.new(#E040FB, 10), "สี Sub Wave", group = grpSubWave)
+
+grpRsiCut    = "📍 Entry — RSI Cut"
+i_rsiCutEnabled = input.bool(true,  "เปิดใช้ RSI Cut",  group = grpRsiCut)
+i_rsiPeriod     = input.int(14,     "RSI Period",       minval = 1, group = grpRsiCut)
+i_rsiOvsLevel   = input.int(30,     "RSI OVS Level",    minval = 1,  maxval = 49, group = grpRsiCut)
+i_rsiOvbLevel   = input.int(70,     "RSI OVB Level",    minval = 51, maxval = 99, group = grpRsiCut)
+
+grpEMA     = "📍 Entry — EMA"
 i_emaFast  = input.int(14, "Fast EMA",  minval = 1, group = grpEMA)
 i_emaSlow  = input.int(60, "Slow EMA",  minval = 1, group = grpEMA)
-i_showEMA  = input.bool(true, "Show EMA Lines", group = grpEMA)
-i_showEMAbg = input.bool(true, "Show EMA Cross Background", group = grpEMA)
+i_showEMA  = input.bool(true, "แสดงเส้น EMA", group = grpEMA)
+i_showEMAbg = input.bool(true, "แสดงพื้นหลัง EMA Cross", group = grpEMA)
 
-grpPattern   = "Flag Pattern"
-i_showPattern = input.bool(false, "Show Pattern Trendlines", group = grpPattern)
-i_pivotLen    = input.int(2, "Pivot Length", minval = 1, maxval = 5, group = grpPattern)
+// ─── 📊 แสดงผล ───
+grpDisplay = "📊 แสดงผล"
+i_showMarkers = input.bool(true,  "แสดงจุด OVS/OVB",      group = grpDisplay)
+i_maxMarkers  = input.int(30, "จำนวนจุดสูงสุด (คู่)",    minval = 5, maxval = 100, group = grpDisplay)
+i_showTrend   = input.bool(true, "แสดงป้ายเทรน (UP/DN)",  group = grpDisplay)
+i_showZones   = input.bool(false, "แสดงพื้นหลังโซน OVS/OVB", group = grpDisplay)
+i_showPattern = input.bool(false, "แสดงเส้น Flag Pattern", group = grpDisplay)
+i_pivotLen    = input.int(2, "Pivot Length (Flag)",       minval = 1, maxval = 5, group = grpDisplay)
 
-grpTrend     = "Swing Trend"
-i_showTrend  = input.bool(true, "Show Trend Labels", group = grpTrend)
-
-grpRsiCut    = "RSI Mountain Cut"
-i_rsiCutEnabled = input.bool(true,  "Enable RSI Cut",  group = grpRsiCut)
-i_rsiPeriod     = input.int(14,     "RSI Period",      minval = 1, group = grpRsiCut)
-i_rsiOvsLevel   = input.int(30,     "RSI OVS Level",   minval = 1,  maxval = 49, group = grpRsiCut)
-i_rsiOvbLevel   = input.int(70,     "RSI OVB Level",   minval = 51, maxval = 99, group = grpRsiCut)
-
-grpDisplay = "Display"
-i_showMarkers = input.bool(true,  "Show OVS/OVB Markers", group = grpDisplay)
-i_maxMarkers  = input.int(30, "Max Marker Pairs", minval = 5, maxval = 100, group = grpDisplay)
-i_showZones   = input.bool(false, "Show Zone Background", group = grpDisplay)
-
-grpColors  = "Colors"
-i_colPending = input.color(color.new(#FFD700, 10), "Fibo Pending",  group = grpColors)
-i_colValid   = input.color(color.new(#00E676, 10), "Fibo Valid",    group = grpColors)
-i_col161     = input.color(color.new(#00E676,  0), "161.8% Line",   group = grpColors)
+// ─── 🎨 สี ───
+grpColors  = "🎨 สี"
+i_colPending = input.color(color.new(#FFD700, 10), "สี Fibo รอยืนยัน",  group = grpColors)
+i_colValid   = input.color(color.new(#00E676, 10), "สี Fibo ยืนยันแล้ว", group = grpColors)
+i_col161     = input.color(color.new(#00E676,  0), "สีเส้น 161.8%",     group = grpColors)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -75,11 +80,11 @@ var float[] FIBO_LEVELS = array.from(
      1.0,   1.272,  1.618,  2.0,   2.618,  4.236)
 
 var string[] FIBO_LABELS = array.from(
-     "0%",    "23.6%", "38.2%", "50%",  "61.8%", "78.6%",
-     "100%",  "127.2%","161.8%","200%", "261.8%","423.6%")
+     "0",    "23.6", "38.2", "50",  "61.8", "78.6",
+     "100",  "127.2","161.8","200", "261.8","423.6")
 
 var float[] SUP_FIBO_LEVELS = array.from(0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0)
-var string[] SUP_FIBO_LABELS = array.from("0%", "23.6%", "38.2%", "50%", "61.8%", "78.6%", "100%")
+var string[] SUP_FIBO_LABELS = array.from("0", "23.6", "38.2", "50", "61.8", "78.6", "100")
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UDT: FiboSet
@@ -91,8 +96,10 @@ type FiboSet
     int     status
     int     fiboType
     int     fDir
+    int     hlIdx = -1
     line[]  ln
     label[] lb
+    line    diagLn = na
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Stochastic Calculation (on selected timeframe)
@@ -100,9 +107,8 @@ type FiboSet
 
 kRaw = ta.stoch(close, high, low, i_kPeriod)
 kVal = ta.sma(kRaw, i_slowing)
-dVal = ta.sma(kVal, i_dPeriod)
 
-[kTF, dTF, hiTF, loTF] = request.security(syminfo.tickerid, i_stochTF, [kVal, dVal, high, low])
+[kTF, hiTF, loTF] = request.security(syminfo.tickerid, i_stochTF, [kVal, high, low])
 
 inOvs = kTF < i_ovsLevel
 inOvb = kTF > i_ovbLevel
@@ -116,6 +122,191 @@ rsiTF  = request.security(syminfo.tickerid, i_stochTF, rsiRaw)
 
 rsiInOvs = rsiTF < i_rsiOvsLevel
 rsiInOvb = rsiTF > i_rsiOvbLevel
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sub Wave: TF Auto-detection + Core State Machine
+// ─────────────────────────────────────────────────────────────────────────────
+
+getSubWaveTF(string mainTF) =>
+    result = switch mainTF
+        "D"   => "240"
+        "1D"  => "240"
+        "240" => "60"
+        "60"  => "15"
+        "15"  => "5"
+        "5"   => "1"
+        => "15"
+    result
+
+formatTF(string tf) =>
+    result = switch tf
+        "1"    => "M1"
+        "3"    => "M3"
+        "5"    => "M5"
+        "15"   => "M15"
+        "30"   => "M30"
+        "45"   => "M45"
+        "60"   => "H1"
+        "120"  => "H2"
+        "180"  => "H3"
+        "240"  => "H4"
+        "D"    => "Day"
+        "1D"   => "Day"
+        "W"    => "Week"
+        "1W"   => "Week"
+        "M"    => "Month"
+        "1M"   => "Month"
+        => tf
+    result
+
+mainTFUsed = i_stochTF == "" ? timeframe.period : i_stochTF
+subWaveTF  = i_subWaveTF == "" ? getSubWaveTF(mainTFUsed) : i_subWaveTF
+mainTFTag  = formatTF(mainTFUsed)
+subWaveTFTag = formatTF(subWaveTF)
+
+subWaveCore() =>
+    var int   _sm       = 0
+    var float _ovsLo    = na
+    var float _ovbHi    = na
+    var float _confOvbHi = na
+    var float _prevOvsLo = na
+    var float _prevOvbHi = na
+    var int   _trend    = 0
+    var bool  _sbDrawn  = false
+    var int   _lastFT   = 0
+    var bool  _canDraw  = true
+    var float _fLo      = na
+    var float _fHi      = na
+    var int   _fType    = 0
+    var int   _fDir     = 0
+    var int   _fStat    = -1
+    var int   _fCount   = 0
+    var int   _ovsLoTime     = na
+    var int   _ovbHiTime     = na
+    var int   _confOvbHiTime = na
+    var int   _prevOvsLoTime = na
+    var int   _fLoTime       = na
+    var int   _fHiTime       = na
+
+    _kR  = ta.stoch(close, high, low, i_kPeriod)
+    _kV  = ta.sma(_kR, i_slowing)
+    _ovs = _kV < i_ovsLevel
+    _ovb = _kV > i_ovbLevel
+
+    if _sm == 0
+        if na(_ovsLo) or low < _ovsLo
+            _ovsLo := low
+            _ovsLoTime := time
+            _ovbHi := high
+            _ovbHiTime := time
+        else
+            if na(_ovbHi) or high > _ovbHi
+                _ovbHi := high
+                _ovbHiTime := time
+        if _ovb and not na(_ovsLo)
+            _lo = _ovsLo
+            if not na(_prevOvsLo)
+                _isHL = _lo > _prevOvsLo
+                _isLL = _lo < _prevOvsLo
+                if _trend == 0 and _isHL
+                    _trend := 2
+                else if _trend == 0 and _isLL
+                    _trend := -1
+                    _sbDrawn := false
+                else if _trend == -1 and _isHL
+                    _trend := 2
+                else if _trend == 1 and _isLL
+                    _trend := -2
+                else if _trend == -2 and _isLL
+                    _trend := -1
+                    _sbDrawn := false
+                else if _trend == -2 and _isHL
+                    _trend := 1
+            _fT = (not na(_prevOvsLo) and _lo > _prevOvsLo and not _sbDrawn) ? 1 : 0
+            if _fT == 1
+                _sbDrawn := true
+            _lastFT  := _fT
+            _prevOvsLo := _lo
+            _prevOvsLoTime := _ovsLoTime
+            if _canDraw and not na(_confOvbHi) and _confOvbHi > _lo
+                _fLo   := _lo
+                _fHi   := _confOvbHi
+                _fLoTime := _ovsLoTime
+                _fHiTime := _confOvbHiTime
+                _fType := _fT
+                _fDir  := 1
+                _fStat := 0
+                _fCount += 1
+                _canDraw := false
+            _sm    := 1
+            _ovsLo := na
+            _ovsLoTime := na
+    else if _sm == 1
+        if na(_ovbHi) or high > _ovbHi
+            _ovbHi := high
+            _ovbHiTime := time
+            _ovsLo := low
+            _ovsLoTime := time
+        else
+            if na(_ovsLo) or low < _ovsLo
+                _ovsLo := low
+                _ovsLoTime := time
+        if _ovs
+            if not na(_prevOvbHi)
+                _isHH = _ovbHi > _prevOvbHi
+                _isLH = _ovbHi < _prevOvbHi
+                if _trend == 1 and _isLH
+                    _trend := -2
+                else if _trend == -1 and _isHH
+                    _trend := 2
+                else if _trend == 2 and _isHH
+                    _trend := 1
+                else if _trend == 2 and _isLH
+                    _trend := -1
+                    _sbDrawn := false
+                else if _trend == -2 and _isLH
+                    _trend := -1
+                    _sbDrawn := false
+                else if _trend == -2 and _isHH
+                    _trend := 1
+            if _fStat == 0
+                _canDraw := true
+                _fStat   := -1
+            _prevOvbHi := _ovbHi
+            _confOvbHi := _ovbHi
+            _confOvbHiTime := _ovbHiTime
+            if _canDraw and not na(_prevOvsLo) and _ovbHi > _prevOvsLo
+                _fLo   := _prevOvsLo
+                _fHi   := _ovbHi
+                _fLoTime := _prevOvsLoTime
+                _fHiTime := _ovbHiTime
+                _fType := _lastFT
+                _fDir  := -1
+                _fStat := 0
+                _fCount += 1
+                _canDraw := false
+            _sm    := 0
+            _ovbHi := na
+            _ovbHiTime := na
+
+    if _fStat == 0 and not na(_fLo) and not na(_fHi)
+        _rng = _fHi - _fLo
+        if _fDir == 1
+            _tgt = _fType == 1 ? _fLo + 1.0 * _rng : _fLo + 1.618 * _rng
+            _chk = _fType == 1 ? high : close
+            if _chk > _tgt
+                _fStat   := 1
+                _canDraw := true
+        else
+            _tgt = _fType == 1 ? _fHi - 1.0 * _rng : _fHi - 1.618 * _rng
+            _chk = _fType == 1 ? low : close
+            if _chk < _tgt
+                _fStat   := 1
+                _canDraw := true
+
+    [_fLo, _fHi, _fType, _fDir, _fStat, _trend, _fCount, _fLoTime, _fHiTime]
+
+[swLo, swHi, swType, swDir, swStat, swTrend, swCount, swLoTime, swHiTime] = request.security(syminfo.tickerid, subWaveTF, subWaveCore())
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fibo Helper Functions
@@ -137,30 +328,30 @@ createFiboSet(float lo, float hi, int startBar, int endBar, int fType, string fN
 
     baseCol  = i_colPending
     hlIndex  = fType == FT_SOMBOON ? 6 : 8
+    fs.hlIdx := hlIndex
+
+    dirTag  = dir == 1 ? "▲" : "▼"
+    nameTag = "⏳ " + fName + " เป้า" + dirTag + " " + mainTFTag
 
     for i = 0 to array.size(FIBO_LEVELS) - 1
         lvl   = array.get(FIBO_LEVELS, i)
         price = dir == 1 ? lo + lvl * rng : hi - lvl * rng
         lbl   = array.get(FIBO_LABELS, i)
+        pTxt  = str.tostring(price, format.mintick)
 
-        isHL  = i == hlIndex
-        is423 = i == 11
-        is100 = i == 6
-        is161 = i == 8
-
-        col = isHL ? i_col161 : baseCol
-        w   = (is100 or is161 or is423 or isHL) ? 3 : 2
-        sty = isHL ? line.style_solid : line.style_dashed
-
-        dirTag = dir == 1 ? "▲" : "▼"
-        prefix = "⏳ " + fName + dirTag + " "
-        newLine  = line.new(x1, price, x2, price, color = col, width = w, style = sty)
-        newLabel = label.new(x2, price, prefix + lbl + " (" + str.tostring(price, format.mintick) + ")",
+        txt   = i == 0 ? nameTag + "  " + lbl + " (" + pTxt + ")" : lbl + " (" + pTxt + ")"
+        newLine  = line.new(x1, price, x2, price, color = baseCol, width = 1, style = line.style_dashed)
+        newLabel = label.new(x2, price, txt,
              style = label.style_label_left, color = color.new(color.black, 100),
-             textcolor = col, size = size.normal)
+             textcolor = baseCol, size = size.small)
 
         array.push(fs.ln, newLine)
         array.push(fs.lb, newLabel)
+
+    if dir == 1
+        fs.diagLn := line.new(x1, hi, x2, lo, color = baseCol, width = 1, style = line.style_dashed)
+    else
+        fs.diagLn := line.new(x1, lo, x2, hi, color = baseCol, width = 1, style = line.style_dashed)
 
     fs
 
@@ -168,37 +359,51 @@ deleteFiboSet(FiboSet fs) =>
     for i = 0 to array.size(fs.ln) - 1
         line.delete(array.get(fs.ln, i))
         label.delete(array.get(fs.lb, i))
-
-recolourFiboSet(FiboSet fs, color col) =>
-    for i = 0 to array.size(fs.ln) - 1
-        line.set_color(array.get(fs.ln, i), col)
-        label.set_textcolor(array.get(fs.lb, i), col)
+    line.delete(fs.diagLn)
 
 makePendingStyle(FiboSet fs, color col) =>
     for i = 0 to array.size(fs.ln) - 1
         l = array.get(fs.ln, i)
         lb = array.get(fs.lb, i)
         line.set_color(l, col)
-        line.set_width(l, 3)
+        line.set_width(l, 1)
         line.set_style(l, line.style_dashed)
         label.set_textcolor(lb, col)
-        label.set_size(lb, size.normal)
-        txt = label.get_text(lb)
-        if not str.startswith(txt, "⏳ ")
-            label.set_text(lb, "⏳ " + txt)
+        label.set_size(lb, size.small)
+        if i == 0
+            txt = label.get_text(lb)
+            if not str.startswith(txt, "⏳ ")
+                label.set_text(lb, "⏳ " + txt)
+    if not na(fs.diagLn)
+        line.set_color(fs.diagLn, col)
+        line.set_width(fs.diagLn, 1)
+        line.set_style(fs.diagLn, line.style_dashed)
 
 confirmFiboSet(FiboSet fs, color col) =>
     for i = 0 to array.size(fs.ln) - 1
         l = array.get(fs.ln, i)
         lb = array.get(fs.lb, i)
-        line.set_color(l, col)
-        line.set_width(l, 1)
-        line.set_style(l, line.style_dotted)
-        label.set_textcolor(lb, col)
+        isHL     = i == fs.hlIdx
+        isAnchor = i == 0 or i == 6
+
+        lCol = isHL ? i_col161 : col
+        lW   = isHL ? 2 : 1
+        lSty = (isHL or isAnchor) ? line.style_solid : line.style_dotted
+
+        line.set_color(l, lCol)
+        line.set_width(l, lW)
+        line.set_style(l, lSty)
+        label.set_textcolor(lb, lCol)
         label.set_size(lb, size.small)
-        txt = label.get_text(lb)
-        if str.startswith(txt, "⏳ ")
-            label.set_text(lb, str.replace(txt, "⏳ ", "", 0))
+
+        if i == 0
+            txt = label.get_text(lb)
+            if str.startswith(txt, "⏳ ")
+                label.set_text(lb, str.replace(txt, "⏳ ", "", 0))
+    if not na(fs.diagLn)
+        line.set_color(fs.diagLn, col)
+        line.set_width(fs.diagLn, 1)
+        line.set_style(fs.diagLn, line.style_dotted)
 
 createSupportFiboSet(float lo, float hi, int startBar, int endBar, int dir) =>
     fs = FiboSet.new()
@@ -214,24 +419,32 @@ createSupportFiboSet(float lo, float hi, int startBar, int endBar, int dir) =>
     x1  = startBar
     x2  = endBar
 
+    dirTag  = dir == 1 ? "▲" : "▼"
+    nameTag = "SP รับ" + dirTag + " " + mainTFTag
+
     for i = 0 to array.size(SUP_FIBO_LEVELS) - 1
         lvl   = array.get(SUP_FIBO_LEVELS, i)
-        price = hi - lvl * rng
+        price = dir == 1 ? hi - lvl * rng : lo + lvl * rng
         lbl   = array.get(SUP_FIBO_LABELS, i)
+        pTxt  = str.tostring(price, format.mintick)
 
         is0or100 = i == 0 or i == 6
         w   = is0or100 ? 2 : 1
         sty = is0or100 ? line.style_solid : line.style_dotted
 
-        dirTag = dir == 1 ? "▲" : "▼"
-        prefix = "SP" + dirTag + " "
+        txt = i == 0 ? nameTag + "  " + lbl + " (" + pTxt + ")" : lbl + " (" + pTxt + ")"
         newLine  = line.new(x1, price, x2, price, color = i_colSup, width = w, style = sty)
-        newLabel = label.new(x2, price, prefix + lbl + " (" + str.tostring(price, format.mintick) + ")",
+        newLabel = label.new(x2, price, txt,
              style = label.style_label_left, color = color.new(color.black, 100),
              textcolor = i_colSup, size = size.small)
 
         array.push(fs.ln, newLine)
         array.push(fs.lb, newLabel)
+
+    if dir == -1
+        fs.diagLn := line.new(x1, hi, x2, lo, color = i_colSup, width = 1, style = line.style_dashed)
+    else
+        fs.diagLn := line.new(x1, lo, x2, hi, color = i_colSup, width = 1, style = line.style_dashed)
 
     fs
 
@@ -259,32 +472,20 @@ var array<FiboSet> pendingSupArr = array.new<FiboSet>()
 
 var int   trend        = 0
 var float prevOvbHigh  = na
-var bool  canDrawFibo = true
+var bool  canDrawUp  = true
+var bool  canDrawDn  = true
 var array<label> trendLabels = array.new<label>()
 
-var int    lastFType = FT_HAK_KHO
-var string lastFName = "HK"
-var bool   sbDrawn   = false
+var bool   sbDrawn    = false
+var int    dnFType    = FT_HAK_KHO
+var string dnFName    = "HK"
+var bool   dnSbDrawn  = false
 
 var float patPivHi    = na
 var int   patPivHiBar = na
 var float patPivLo    = na
 var int   patPivLoBar = na
 var array<line> patLines = array.new<line>()
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Weekly high/low (same calendar week as current bar, for RSI cut line span)
-// ─────────────────────────────────────────────────────────────────────────────
-
-var float weekSessHi = na
-var float weekSessLo = na
-newWeek = ta.change(time("W")) != 0
-if bar_index == 0 or newWeek
-    weekSessHi := high
-    weekSessLo := low
-else
-    weekSessHi := math.max(weekSessHi, high)
-    weekSessLo := math.min(weekSessLo, low)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // RSI Mountain Cut State Machine
@@ -295,7 +496,6 @@ var int  RSI_WAIT_OVB        = 1
 var int  RSI_WAIT_SECOND_OVS = 2
 
 var int   rsiCutState = RSI_WAIT_FIRST_OVS
-var bool  rsiCutDone  = false
 var bool  rsiCutBar   = false
 
 if i_rsiCutEnabled
@@ -305,7 +505,6 @@ if i_rsiCutEnabled
     else if rsiCutState == RSI_WAIT_OVB and rsiInOvb
         rsiCutState := RSI_WAIT_SECOND_OVS
     else if rsiCutState == RSI_WAIT_SECOND_OVS and rsiInOvs
-        rsiCutDone := true
         rsiCutBar  := true
         rsiCutState := RSI_WAIT_FIRST_OVS
 
@@ -332,9 +531,12 @@ switch smState
             patPivLoBar := bar_index - i_pivotLen
 
         checkLo = math.min(low, loTF)
+        checkHi = math.max(high, hiTF)
         if na(ovsLow) or checkLo < ovsLow
-            ovsLow := checkLo
-            ovsBar := bar_index
+            ovsLow  := checkLo
+            ovsBar  := bar_index
+            ovbHigh := checkHi
+            ovbBar  := bar_index
             if i_showMarkers
                 if na(curOvsLbl)
                     curOvsLbl := label.new(bar_index, checkLo, "⏳ S",
@@ -343,6 +545,10 @@ switch smState
                 else
                     label.set_x(curOvsLbl, bar_index)
                     label.set_y(curOvsLbl, checkLo)
+        else
+            if na(ovbHigh) or checkHi > ovbHigh
+                ovbHigh := checkHi
+                ovbBar  := bar_index
 
         if inOvb and not na(ovsLow)
             savedOvsLow = ovsLow
@@ -364,73 +570,103 @@ switch smState
             fName = isHigherLow and not sbDrawn ? "SB" : "HK"
             if fType == FT_SOMBOON
                 sbDrawn := true
-            lastFType := fType
-            lastFName := fName
 
             // Swing Trend: check OVS for higher/lower low
-            if i_showTrend and not na(prevConfirmedOvsLow)
+            if not na(prevConfirmedOvsLow)
                 isHL = savedOvsLow > prevConfirmedOvsLow
                 isLL = savedOvsLow < prevConfirmedOvsLow
                 if trend == 0 and isHL
                     trend := 2
-                    array.push(trendLabels, label.new(savedOvsBar, savedOvsLow, "⚠HL",
-                         style = label.style_label_up, color = color.new(color.yellow, 10),
-                         textcolor = color.black, size = size.small))
+                    if i_showTrend
+                        array.push(trendLabels, label.new(savedOvsBar, savedOvsLow, "⚠HL",
+                             style = label.style_label_up, color = color.new(color.yellow, 10),
+                             textcolor = color.black, size = size.small))
                 else if trend == 0 and isLL
                     trend := -1
+                    sbDrawn := false
+                    if i_showTrend
+                        array.push(trendLabels, label.new(savedOvsBar, savedOvsLow, "DN",
+                             style = label.style_label_up, color = color.new(color.red, 10),
+                             textcolor = color.white, size = size.normal))
                 else if trend == -1 and isHL
                     trend := 2
-                    array.push(trendLabels, label.new(savedOvsBar, savedOvsLow, "⚠HL",
-                         style = label.style_label_up, color = color.new(color.yellow, 10),
-                         textcolor = color.black, size = size.small))
+                    if i_showTrend
+                        array.push(trendLabels, label.new(savedOvsBar, savedOvsLow, "⚠HL",
+                             style = label.style_label_up, color = color.new(color.yellow, 10),
+                             textcolor = color.black, size = size.small))
                 else if trend == 1 and isLL
                     trend := -2
-                    array.push(trendLabels, label.new(savedOvsBar, savedOvsLow, "⚠LL",
-                         style = label.style_label_up, color = color.new(color.yellow, 10),
-                         textcolor = color.black, size = size.small))
+                    if i_showTrend
+                        array.push(trendLabels, label.new(savedOvsBar, savedOvsLow, "⚠LL",
+                             style = label.style_label_up, color = color.new(color.yellow, 10),
+                             textcolor = color.black, size = size.small))
                 else if trend == -2 and isLL
                     trend := -1
-                    array.push(trendLabels, label.new(savedOvsBar, savedOvsLow, "DN",
-                         style = label.style_label_up, color = color.new(color.red, 10),
-                         textcolor = color.white, size = size.normal))
+                    sbDrawn := false
+                    if i_showTrend
+                        array.push(trendLabels, label.new(savedOvsBar, savedOvsLow, "DN",
+                             style = label.style_label_up, color = color.new(color.red, 10),
+                             textcolor = color.white, size = size.normal))
                 else if trend == -2 and isHL
                     trend := 1
+                    if i_showTrend
+                        array.push(trendLabels, label.new(savedOvsBar, savedOvsLow, "UP",
+                             style = label.style_label_up, color = color.new(color.green, 10),
+                             textcolor = color.white, size = size.normal))
 
             prevConfirmedOvsLow := savedOvsLow
             prevConfirmedOvsBar := savedOvsBar
 
-            // Draw upside Fibo: OVB(left) → OVS(right), only when NOT in confirmed downtrend
-            if i_showFibo and canDrawFibo and trend != -1 and not na(confirmedOvbHigh) and confirmedOvbHigh > savedOvsLow
-                showThis = fType == FT_HAK_KHO ? i_showHK : i_showSB
+            // Deadline: expire downside PENDING Target Fibos (not validated within this OVS cycle)
+            if array.size(fiboSets) > 0
+                toExpireDn = array.new<int>()
+                for i = 0 to array.size(fiboSets) - 1
+                    fs = array.get(fiboSets, i)
+                    if fs.status == ST_PENDING and fs.fDir == -1
+                        deleteFiboSet(fs)
+                        array.push(toExpireDn, i)
+                        canDrawDn := true
+                if array.size(toExpireDn) > 0
+                    for j = array.size(toExpireDn) - 1 to 0
+                        array.remove(fiboSets, array.get(toExpireDn, j))
 
-                // Delete PENDING Fibo of opposite direction
-                if array.size(fiboSets) > 0
-                    toRemove = array.new<int>()
-                    for i = 0 to array.size(fiboSets) - 1
-                        fs = array.get(fiboSets, i)
-                        if fs.status == ST_PENDING and fs.fDir != 1
-                            deleteFiboSet(fs)
-                            array.push(toRemove, i)
-                    if array.size(toRemove) > 0
-                        for j = array.size(toRemove) - 1 to 0
-                            array.remove(fiboSets, array.get(toRemove, j))
+            // Draw upside Target Fibo: OVB(left) → OVS(right)
+            if i_showFibo and canDrawUp and not na(confirmedOvbHigh) and confirmedOvbHigh > savedOvsLow
+                showThis = fType == FT_HAK_KHO ? i_showHK : i_showSB
 
                 if showThis
                     newFs = createFiboSet(savedOvsLow, confirmedOvbHigh, confirmedOvbBar, savedOvsBar, fType, fName, 1)
                     array.push(fiboSets, newFs)
-                    canDrawFibo := false
+                    canDrawUp := false
 
-                    while array.size(fiboSets) > i_maxSets
-                        deleteFiboSet(array.get(fiboSets, 0))
-                        array.remove(fiboSets, 0)
+                    upCount = 0
+                    for idx = 0 to array.size(fiboSets) - 1
+                        if array.get(fiboSets, idx).fDir == 1
+                            upCount += 1
+                    while upCount > i_maxSets and array.size(fiboSets) > 0
+                        for idx = 0 to array.size(fiboSets) - 1
+                            if array.get(fiboSets, idx).fDir == 1
+                                deleteFiboSet(array.get(fiboSets, idx))
+                                array.remove(fiboSets, idx)
+                                upCount -= 1
+                                break
 
-            // Draw downside Support Fibo: OVB(left) → OVS(right), only in downtrend
-            if i_showSupFibo and trend == -1 and not na(confirmedOvbHigh) and confirmedOvbHigh > savedOvsLow
+            // Draw downside Entry Fibo: OVB(left) → OVS(right)
+            if i_showSupFibo and not na(confirmedOvbHigh) and confirmedOvbHigh > savedOvsLow
                 newSup = createSupportFiboSet(savedOvsLow, confirmedOvbHigh, confirmedOvbBar, savedOvsBar, -1)
                 array.push(supFiboSets, newSup)
-                while array.size(supFiboSets) > i_maxSupSets
-                    deleteFiboSet(array.get(supFiboSets, 0))
-                    array.remove(supFiboSets, 0)
+
+                supDnCount = 0
+                for idx = 0 to array.size(supFiboSets) - 1
+                    if array.get(supFiboSets, idx).fDir == -1
+                        supDnCount += 1
+                while supDnCount > i_maxSupSets and array.size(supFiboSets) > 0
+                    for idx = 0 to array.size(supFiboSets) - 1
+                        if array.get(supFiboSets, idx).fDir == -1
+                            deleteFiboSet(array.get(supFiboSets, idx))
+                            array.remove(supFiboSets, idx)
+                            supDnCount -= 1
+                            break
 
             // Draw flag pattern trendlines
             if i_showPattern and not na(confirmedOvbHigh) and not na(confirmedOvbBar)
@@ -443,7 +679,7 @@ switch smState
                          color = color.new(color.white, 20), width = 1, style = line.style_solid, extend = extend.right)
                     array.push(patLines, lowerLine)
 
-                while array.size(patLines) > i_maxSets * 2
+                while array.size(patLines) > 10
                     line.delete(array.get(patLines, 0))
                     array.remove(patLines, 0)
 
@@ -453,20 +689,21 @@ switch smState
             patPivLoBar := na
 
             smState := SM_WAIT_OVB
-            ovbHigh := math.max(high, hiTF)
-            ovbBar  := bar_index
             ovsLow  := na
             ovsBar  := na
             if i_showMarkers
-                curOvbLbl := label.new(bar_index, ovbHigh, "⏳ B",
+                curOvbLbl := label.new(ovbBar, ovbHigh, "⏳ B",
                      style = label.style_label_down, color = color.new(color.orange, 30),
                      textcolor = color.white, size = size.small)
 
     SM_WAIT_OVB =>
         checkHi = math.max(high, hiTF)
+        checkLo = math.min(low, loTF)
         if na(ovbHigh) or checkHi > ovbHigh
             ovbHigh := checkHi
             ovbBar  := bar_index
+            ovsLow  := checkLo
+            ovsBar  := bar_index
             if i_showMarkers
                 if na(curOvbLbl)
                     curOvbLbl := label.new(bar_index, checkHi, "⏳ B",
@@ -475,86 +712,122 @@ switch smState
                 else
                     label.set_x(curOvbLbl, bar_index)
                     label.set_y(curOvbLbl, checkHi)
+        else
+            if na(ovsLow) or checkLo < ovsLow
+                ovsLow := checkLo
+                ovsBar := bar_index
 
         if inOvs
+            finalOvbHigh = ovbHigh
+            finalOvbBar  = ovbBar
+
             // Swing Trend: check OVB for higher/lower high
-            if i_showTrend and not na(prevOvbHigh)
-                isHH = ovbHigh > prevOvbHigh
-                isLH = ovbHigh < prevOvbHigh
+            if not na(prevOvbHigh)
+                isHH = finalOvbHigh > prevOvbHigh
+                isLH = finalOvbHigh < prevOvbHigh
                 if trend == 1 and isLH
                     trend := -2
-                    array.push(trendLabels, label.new(ovbBar, ovbHigh, "⚠LH",
-                         style = label.style_label_down, color = color.new(color.yellow, 10),
-                         textcolor = color.black, size = size.small))
+                    if i_showTrend
+                        array.push(trendLabels, label.new(finalOvbBar, finalOvbHigh, "⚠LH",
+                             style = label.style_label_down, color = color.new(color.yellow, 10),
+                             textcolor = color.black, size = size.small))
                 else if trend == -1 and isHH
                     trend := 2
-                    array.push(trendLabels, label.new(ovbBar, ovbHigh, "⚠HH",
-                         style = label.style_label_down, color = color.new(color.yellow, 10),
-                         textcolor = color.black, size = size.small))
+                    dnSbDrawn := false
+                    if i_showTrend
+                        array.push(trendLabels, label.new(finalOvbBar, finalOvbHigh, "⚠HH",
+                             style = label.style_label_down, color = color.new(color.yellow, 10),
+                             textcolor = color.black, size = size.small))
                 else if trend == 2 and isHH
                     trend := 1
-                    array.push(trendLabels, label.new(ovbBar, ovbHigh, "UP",
-                         style = label.style_label_down, color = color.new(color.green, 10),
-                         textcolor = color.white, size = size.normal))
+                    dnSbDrawn := false
+                    if i_showTrend
+                        array.push(trendLabels, label.new(finalOvbBar, finalOvbHigh, "UP",
+                             style = label.style_label_down, color = color.new(color.green, 10),
+                             textcolor = color.white, size = size.normal))
                 else if trend == 2 and isLH
                     trend := -1
+                    sbDrawn := false
+                    if i_showTrend
+                        array.push(trendLabels, label.new(finalOvbBar, finalOvbHigh, "DN",
+                             style = label.style_label_down, color = color.new(color.red, 10),
+                             textcolor = color.white, size = size.normal))
                 else if trend == -2 and isLH
                     trend := -1
-                    array.push(trendLabels, label.new(ovbBar, ovbHigh, "DN",
-                         style = label.style_label_down, color = color.new(color.red, 10),
-                         textcolor = color.white, size = size.normal))
+                    sbDrawn := false
+                    if i_showTrend
+                        array.push(trendLabels, label.new(finalOvbBar, finalOvbHigh, "DN",
+                             style = label.style_label_down, color = color.new(color.red, 10),
+                             textcolor = color.white, size = size.normal))
                 else if trend == -2 and isHH
                     trend := 1
+                    dnSbDrawn := false
+                    if i_showTrend
+                        array.push(trendLabels, label.new(finalOvbBar, finalOvbHigh, "UP",
+                             style = label.style_label_down, color = color.new(color.green, 10),
+                             textcolor = color.white, size = size.normal))
 
-            // Deadline: delete PENDING Fibo (not validated within this OVB cycle)
+            // Deadline: expire upside PENDING Target Fibos (not validated within this OVB cycle)
             if array.size(fiboSets) > 0
-                toExpire = array.new<int>()
+                toExpireUp = array.new<int>()
                 for i = 0 to array.size(fiboSets) - 1
                     fs = array.get(fiboSets, i)
-                    if fs.status == ST_PENDING
+                    if fs.status == ST_PENDING and fs.fDir == 1
                         deleteFiboSet(fs)
-                        array.push(toExpire, i)
-                        canDrawFibo := true
-                if array.size(toExpire) > 0
-                    for j = array.size(toExpire) - 1 to 0
-                        array.remove(fiboSets, array.get(toExpire, j))
+                        array.push(toExpireUp, i)
+                        canDrawUp := true
+                if array.size(toExpireUp) > 0
+                    for j = array.size(toExpireUp) - 1 to 0
+                        array.remove(fiboSets, array.get(toExpireUp, j))
 
-            prevOvbHigh      := ovbHigh
-            confirmedOvbHigh := ovbHigh
-            confirmedOvbBar  := ovbBar
+            // Determine downside SB/HK: LH = SB (first time only), else HK
+            isLowerHigh = not na(prevOvbHigh) and finalOvbHigh < prevOvbHigh
+            dnFType := isLowerHigh and not dnSbDrawn ? FT_SOMBOON : FT_HAK_KHO
+            dnFName := isLowerHigh and not dnSbDrawn ? "SB" : "HK"
+            if dnFType == FT_SOMBOON
+                dnSbDrawn := true
 
-            // Draw downside Fibo: OVS(left) → OVB(right), only in confirmed downtrend
-            if i_showFibo and canDrawFibo and trend == -1 and not na(prevConfirmedOvsLow) and ovbHigh > prevConfirmedOvsLow
-                showThis = lastFType == FT_HAK_KHO ? i_showHK : i_showSB
+            prevOvbHigh      := finalOvbHigh
+            confirmedOvbHigh := finalOvbHigh
+            confirmedOvbBar  := finalOvbBar
 
-                // Delete PENDING Fibo of opposite direction
-                if array.size(fiboSets) > 0
-                    toRemove = array.new<int>()
-                    for i = 0 to array.size(fiboSets) - 1
-                        fs = array.get(fiboSets, i)
-                        if fs.status == ST_PENDING and fs.fDir != -1
-                            deleteFiboSet(fs)
-                            array.push(toRemove, i)
-                    if array.size(toRemove) > 0
-                        for j = array.size(toRemove) - 1 to 0
-                            array.remove(fiboSets, array.get(toRemove, j))
+            // Draw downside Target Fibo: OVS(left) → OVB(right)
+            if i_showFibo and canDrawDn and not na(prevConfirmedOvsLow) and finalOvbHigh > prevConfirmedOvsLow
+                showThis = dnFType == FT_HAK_KHO ? i_showHK : i_showSB
 
                 if showThis
-                    newFs = createFiboSet(prevConfirmedOvsLow, ovbHigh, prevConfirmedOvsBar, ovbBar, lastFType, lastFName, -1)
+                    newFs = createFiboSet(prevConfirmedOvsLow, finalOvbHigh, prevConfirmedOvsBar, finalOvbBar, dnFType, dnFName, -1)
                     array.push(fiboSets, newFs)
-                    canDrawFibo := false
+                    canDrawDn := false
 
-                    while array.size(fiboSets) > i_maxSets
-                        deleteFiboSet(array.get(fiboSets, 0))
-                        array.remove(fiboSets, 0)
+                    dnCount = 0
+                    for idx = 0 to array.size(fiboSets) - 1
+                        if array.get(fiboSets, idx).fDir == -1
+                            dnCount += 1
+                    while dnCount > i_maxSets and array.size(fiboSets) > 0
+                        for idx = 0 to array.size(fiboSets) - 1
+                            if array.get(fiboSets, idx).fDir == -1
+                                deleteFiboSet(array.get(fiboSets, idx))
+                                array.remove(fiboSets, idx)
+                                dnCount -= 1
+                                break
 
-            // Draw upside Support Fibo: OVS(left) → OVB(right), only when NOT in downtrend
-            if i_showSupFibo and trend != -1 and not na(prevConfirmedOvsLow) and ovbHigh > prevConfirmedOvsLow
-                newSup = createSupportFiboSet(prevConfirmedOvsLow, ovbHigh, prevConfirmedOvsBar, ovbBar, 1)
+            // Draw upside Entry Fibo: OVS(left) → OVB(right)
+            if i_showSupFibo and not na(prevConfirmedOvsLow) and finalOvbHigh > prevConfirmedOvsLow
+                newSup = createSupportFiboSet(prevConfirmedOvsLow, finalOvbHigh, prevConfirmedOvsBar, finalOvbBar, 1)
                 array.push(supFiboSets, newSup)
-                while array.size(supFiboSets) > i_maxSupSets
-                    deleteFiboSet(array.get(supFiboSets, 0))
-                    array.remove(supFiboSets, 0)
+
+                supUpCount = 0
+                for idx = 0 to array.size(supFiboSets) - 1
+                    if array.get(supFiboSets, idx).fDir == 1
+                        supUpCount += 1
+                while supUpCount > i_maxSupSets and array.size(supFiboSets) > 0
+                    for idx = 0 to array.size(supFiboSets) - 1
+                        if array.get(supFiboSets, idx).fDir == 1
+                            deleteFiboSet(array.get(supFiboSets, idx))
+                            array.remove(supFiboSets, idx)
+                            supUpCount -= 1
+                            break
 
             if not na(curOvbLbl)
                 label.set_text(curOvbLbl, "B")
@@ -571,12 +844,10 @@ switch smState
             patPivLoBar := na
 
             smState := SM_WAIT_OVS
-            ovsLow  := math.min(low, loTF)
-            ovsBar  := bar_index
             ovbHigh := na
             ovbBar  := na
             if i_showMarkers
-                curOvsLbl := label.new(bar_index, ovsLow, "⏳ S",
+                curOvsLbl := label.new(ovsBar, ovsLow, "⏳ S",
                      style = label.style_label_up, color = color.new(color.aqua, 30),
                      textcolor = color.white, size = size.small)
 
@@ -584,16 +855,16 @@ switch smState
 // Per-bar: Pending Support Fibo (preview of next support Fibo)
 // ─────────────────────────────────────────────────────────────────────────────
 
-if array.size(pendingSupArr) > 0
+while array.size(pendingSupArr) > 0
     deleteFiboSet(array.get(pendingSupArr, 0))
     array.remove(pendingSupArr, 0)
 
 if i_showSupFibo
-    if smState == SM_WAIT_OVB and trend != -1 and not na(prevConfirmedOvsLow) and not na(ovbHigh) and ovbHigh > prevConfirmedOvsLow
+    if smState == SM_WAIT_OVB and not na(prevConfirmedOvsLow) and not na(ovbHigh) and ovbHigh > prevConfirmedOvsLow
         pSup = createSupportFiboSet(prevConfirmedOvsLow, ovbHigh, prevConfirmedOvsBar, ovbBar, 1)
         makePendingStyle(pSup, i_colPending)
         array.push(pendingSupArr, pSup)
-    else if smState == SM_WAIT_OVS and trend == -1 and not na(confirmedOvbHigh) and not na(ovsLow) and confirmedOvbHigh > ovsLow
+    if smState == SM_WAIT_OVS and not na(confirmedOvbHigh) and not na(ovsLow) and confirmedOvbHigh > ovsLow
         pSup = createSupportFiboSet(ovsLow, confirmedOvbHigh, confirmedOvbBar, ovsBar, -1)
         makePendingStyle(pSup, i_colPending)
         array.push(pendingSupArr, pSup)
@@ -623,30 +894,34 @@ if array.size(fiboSets) > 0
                     if high > fs.ovs_low + 1.0 * rng
                         fs.status := ST_VALID
                         confirmFiboSet(fs, i_colValid)
-                        canDrawFibo := true
+                        canDrawUp := true
                 else
                     if close > fs.ovs_low + 1.618 * rng
                         fs.status := ST_VALID
                         confirmFiboSet(fs, i_colValid)
-                        canDrawFibo := true
+                        canDrawUp := true
             else
                 if fs.fiboType == FT_SOMBOON
                     if low < fs.ovb_high - 1.0 * rng
                         fs.status := ST_VALID
                         confirmFiboSet(fs, i_colValid)
-                        canDrawFibo := true
+                        canDrawDn := true
                 else
                     if close < fs.ovb_high - 1.618 * rng
                         fs.status := ST_VALID
                         confirmFiboSet(fs, i_colValid)
-                        canDrawFibo := true
+                        canDrawDn := true
 
     if array.size(toDestroy) > 0
         for j = array.size(toDestroy) - 1 to 0
             idx = array.get(toDestroy, j)
-            if array.get(fiboSets, idx).status == ST_PENDING
-                canDrawFibo := true
-            deleteFiboSet(array.get(fiboSets, idx))
+            dFs = array.get(fiboSets, idx)
+            if dFs.status == ST_PENDING
+                if dFs.fDir == 1
+                    canDrawUp := true
+                else
+                    canDrawDn := true
+            deleteFiboSet(dFs)
             array.remove(fiboSets, idx)
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -657,19 +932,68 @@ if array.size(supFiboSets) > 0
     toDestroySup = array.new<int>()
     for i = 0 to array.size(supFiboSets) - 1
         fs = array.get(supFiboSets, i)
-        rng = fs.ovb_high - fs.ovs_low
-
-        if fs.fDir == 1
-            if low < fs.ovs_low or high > fs.ovs_low + 1.0 * rng
-                array.push(toDestroySup, i)
-        else
-            if high > fs.ovb_high or low < fs.ovb_high - 1.0 * rng
-                array.push(toDestroySup, i)
+        if low < fs.ovs_low or high > fs.ovb_high
+            array.push(toDestroySup, i)
 
     if array.size(toDestroySup) > 0
         for j = array.size(toDestroySup) - 1 to 0
             deleteFiboSet(array.get(supFiboSets, array.get(toDestroySup, j)))
             array.remove(supFiboSets, array.get(toDestroySup, j))
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sub Wave Fibo Visualization (redraw every bar, like pendingSupArr)
+// ─────────────────────────────────────────────────────────────────────────────
+
+var array<line>  swLines  = array.new<line>()
+var array<label> swLabels = array.new<label>()
+var line         swDiag   = na
+
+if array.size(swLines) > 0
+    for i = 0 to array.size(swLines) - 1
+        line.delete(array.get(swLines, i))
+    for i = 0 to array.size(swLabels) - 1
+        label.delete(array.get(swLabels, i))
+    array.clear(swLines)
+    array.clear(swLabels)
+line.delete(swDiag)
+swDiag := na
+
+if i_showSubWave and swStat >= 0 and not na(swLo) and not na(swHi) and swHi > swLo
+    swRng    = swHi - swLo
+    typeName = swType == 1 ? "SB" : "HK"
+    dirTag   = swDir == 1 ? "▲" : "▼"
+    isPending = swStat == 0
+    statTag  = isPending ? "⏳ " : "✓ "
+    nameTag  = statTag + "SW " + typeName + dirTag + " " + subWaveTFTag
+    swCol    = isPending ? i_colPending : i_colSubWave
+    tfMs     = timeframe.in_seconds() * 1000
+    barsLo   = not na(swLoTime) and tfMs > 0 ? math.round((time - swLoTime) / tfMs) : 10
+    barsHi   = not na(swHiTime) and tfMs > 0 ? math.round((time - swHiTime) / tfMs) : 10
+    xLo      = bar_index - math.max(0, barsLo)
+    xHi      = bar_index - math.max(0, barsHi)
+    x1       = math.min(xLo, xHi)
+    x2Raw    = math.max(xLo, xHi)
+    x2       = x2Raw - x1 < 5 ? x1 + 8 : x2Raw + 3
+
+    for i = 0 to array.size(FIBO_LEVELS) - 1
+        lvl   = array.get(FIBO_LEVELS, i)
+        price = swDir == 1 ? swLo + lvl * swRng : swHi - lvl * swRng
+        lbl   = array.get(FIBO_LABELS, i)
+        pTxt  = str.tostring(price, format.mintick)
+
+        is0or100 = i == 0 or i == 6
+        w   = isPending ? 1 : (is0or100 ? 2 : 1)
+        sty = isPending ? line.style_dashed : (is0or100 ? line.style_solid : line.style_dotted)
+
+        txt = i == 0 ? nameTag + "  " + lbl + " (" + pTxt + ")" : lbl + " (" + pTxt + ")"
+        newLine  = line.new(x1, price, x2, price, color = swCol, width = w, style = sty)
+        newLabel = label.new(x2, price, txt,
+             style = label.style_label_left, color = color.new(color.black, 100),
+             textcolor = swCol, size = size.small)
+        array.push(swLines, newLine)
+        array.push(swLabels, newLabel)
+
+    swDiag := line.new(xLo, swLo, xHi, swHi, color = swCol, width = 1, style = line.style_dashed)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Cleanup old markers
@@ -708,53 +1032,66 @@ fill(pFast, pSlow, i_showEMAbg ? cloudCol : na, title = "EMA Cloud")
 // ─────────────────────────────────────────────────────────────────────────────
 
 if barstate.islast
-    var table statusTbl = table.new(position.bottom_right, 2, 6,
+    var table statusTbl = table.new(position.bottom_right, 2, 8,
          bgcolor = color.new(#1E1E1E, 0), border_color = color.new(#333333, 0), border_width = 1,
          frame_color = color.new(#555555, 0), frame_width = 2)
 
-    hSz = size.normal
-    vSz = size.large
+    hSz = size.small
+    vSz = size.normal
 
-    // ── เทรน ──
-    table.cell(statusTbl, 0, 0, "เทรน", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
-    trendTxt = trend == 1 ? "🟢 ขาขึ้น" : trend == -1 ? "🔴 ขาลง" : trend == 2 ? "🟡 เตรียมขึ้น" : trend == -2 ? "🟡 เตรียมลง" : "⚪ ยังไม่ชัด"
+    // Row 0 ── TF ──
+    table.cell(statusTbl, 0, 0, "TF หลัก", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
+    table.cell(statusTbl, 1, 0, mainTFTag, text_color = color.white, text_size = vSz, text_halign = text.align_left)
+
+    // Row 1 ── เทรน ──
+    table.cell(statusTbl, 0, 1, "เทรน", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
+    trendTxt = trend == 1 ? "🟢 ขาขึ้น (HH+HL ยืนยัน)" : trend == -1 ? "🔴 ขาลง (LH+LL ยืนยัน)" : trend == 2 ? "🟡 เตรียมขึ้น (พบ HL)" : trend == -2 ? "🟡 เตรียมลง (พบ LH)" : "⚪ ยังไม่ชัด"
     trendCol = trend == 1 ? color.green : trend == -1 ? color.red : trend == 2 or trend == -2 ? color.yellow : color.gray
-    table.cell(statusTbl, 1, 0, trendTxt, text_color = trendCol, text_size = vSz, text_halign = text.align_left)
+    table.cell(statusTbl, 1, 1, trendTxt, text_color = trendCol, text_size = vSz, text_halign = text.align_left)
 
-    // ── กำลังหา ──
-    table.cell(statusTbl, 0, 1, "กำลังหา", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
-    smTxt = smState == SM_WAIT_OVS ? "🔻 จุดต่ำสุด (OVS)" : "🔺 จุดสูงสุด (OVB)"
+    // Row 2 ── Stoch กำลังหา ──
+    table.cell(statusTbl, 0, 2, "Stoch", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
+    smTxt = smState == SM_WAIT_OVS ? "🔻 รอจุดต่ำสุด (OVS)" : "🔺 รอจุดสูงสุด (OVB)"
     smCol = smState == SM_WAIT_OVS ? color.aqua : color.orange
-    table.cell(statusTbl, 1, 1, smTxt, text_color = smCol, text_size = vSz, text_halign = text.align_left)
+    table.cell(statusTbl, 1, 2, smTxt, text_color = smCol, text_size = vSz, text_halign = text.align_left)
 
-    // ── EMA ──
-    table.cell(statusTbl, 0, 2, "EMA", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
-    emaTxt = emaFast > emaSlow ? "🟢 เหนือเมฆ (ขาขึ้น)" : "🔴 ใต้เมฆ (ขาลง)"
+    // Row 3 ── EMA ──
+    table.cell(statusTbl, 0, 3, "EMA", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
+    emaTxt = emaFast > emaSlow ? "🟢 ราคาเหนือเมฆ (บวก)" : "🔴 ราคาใต้เมฆ (ลบ)"
     emaCol = emaFast > emaSlow ? color.green : color.red
-    table.cell(statusTbl, 1, 2, emaTxt, text_color = emaCol, text_size = vSz, text_halign = text.align_left)
+    table.cell(statusTbl, 1, 3, emaTxt, text_color = emaCol, text_size = vSz, text_halign = text.align_left)
 
-    // ── Fibo หาเป้า ──
+    // Row 4 ── 🎯 Fibo เป้าหมาย ──
     fiboPending = 0
     fiboValid   = 0
-    for i = 0 to array.size(fiboSets) > 0 ? array.size(fiboSets) - 1 : na
-        if not na(i)
+    if array.size(fiboSets) > 0
+        for i = 0 to array.size(fiboSets) - 1
             fs = array.get(fiboSets, i)
             if fs.status == ST_PENDING
                 fiboPending += 1
             else
                 fiboValid += 1
-    table.cell(statusTbl, 0, 3, "Fibo หาเป้า", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
-    fiboTxt = "ยืนยัน " + str.tostring(fiboValid) + " ชุด    รอยืนยัน " + str.tostring(fiboPending) + " ชุด"
-    table.cell(statusTbl, 1, 3, fiboTxt, text_color = fiboPending > 0 ? i_colPending : i_colValid, text_size = vSz, text_halign = text.align_left)
+    table.cell(statusTbl, 0, 4, "🎯 เป้าหมาย", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
+    fiboTxt = "✓ " + str.tostring(fiboValid) + " ชุด  ⏳ " + str.tostring(fiboPending) + " ชุด"
+    table.cell(statusTbl, 1, 4, fiboTxt, text_color = fiboPending > 0 ? i_colPending : i_colValid, text_size = vSz, text_halign = text.align_left)
 
-    // ── Fibo แนวรับ ──
+    // Row 5 ── 📍 Fibo แนวรับ ──
     supCount   = array.size(supFiboSets)
     supPending = array.size(pendingSupArr)
-    table.cell(statusTbl, 0, 4, "Fibo แนวรับ", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
-    supTxt = "ยืนยัน " + str.tostring(supCount) + " ชุด    รอยืนยัน " + str.tostring(supPending) + " ชุด"
-    table.cell(statusTbl, 1, 4, supTxt, text_color = supPending > 0 ? i_colPending : i_colSup, text_size = vSz, text_halign = text.align_left)
+    table.cell(statusTbl, 0, 5, "📍 แนวรับ", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
+    supTxt = "✓ " + str.tostring(supCount) + " ชุด  ⏳ " + str.tostring(supPending) + " ชุด"
+    table.cell(statusTbl, 1, 5, supTxt, text_color = supPending > 0 ? i_colPending : i_colSup, text_size = vSz, text_halign = text.align_left)
 
-    // ── TF ──
-    table.cell(statusTbl, 0, 5, "Timeframe", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
-    tfTxt = i_stochTF == "" ? timeframe.period : i_stochTF
-    table.cell(statusTbl, 1, 5, tfTxt, text_color = color.white, text_size = vSz, text_halign = text.align_left)
+    // Row 6 ── 📍 Sub Wave ──
+    swTrendTxt = swTrend == 1 ? "ขาขึ้น" : swTrend == -1 ? "ขาลง" : swTrend == 2 ? "เตรียมขึ้น" : swTrend == -2 ? "เตรียมลง" : "–"
+    swStatTxt  = swStat == 0 ? "⏳ รอยืนยัน" : swStat == 1 ? "✓ ยืนยัน" : "ไม่มี"
+    swTypeTxt  = (swType == 1 ? "SB" : "HK") + (swDir == 1 ? "▲" : "▼")
+    swPanelCol = swStat == 0 ? i_colPending : swStat == 1 ? i_colSubWave : color.gray
+    table.cell(statusTbl, 0, 6, "📍 Sub Wave", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
+    table.cell(statusTbl, 1, 6, subWaveTFTag + " " + swTrendTxt + " | " + swTypeTxt + " " + swStatTxt, text_color = swPanelCol, text_size = vSz, text_halign = text.align_left)
+
+    // Row 7 ── Sub Wave ราคา ──
+    swLoTxt = not na(swLo) ? str.tostring(swLo, format.mintick) : "–"
+    swHiTxt = not na(swHi) ? str.tostring(swHi, format.mintick) : "–"
+    table.cell(statusTbl, 0, 7, "", text_size = hSz)
+    table.cell(statusTbl, 1, 7, "Lo: " + swLoTxt + "  Hi: " + swHiTxt, text_color = swPanelCol, text_size = vSz, text_halign = text.align_left)
