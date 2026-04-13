@@ -1,0 +1,1092 @@
+// This Pine Script™ is subject to the terms of the Mozilla Public License 2.0
+// https://mozilla.org/MPL/2.0/
+// © OVS/OVB Base Indicator
+
+//@version=6
+indicator("OVS/OVB Base", overlay = true, max_labels_count = 500, max_lines_count = 500, max_bars_back = 5000)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inputs
+// ─────────────────────────────────────────────────────────────────────────────
+
+grpCore    = "⚙️ Stochastic"
+i_kPeriod  = input.int(9,   "K Period",  minval = 1,  group = grpCore)
+i_slowing  = input.int(3,   "Slowing",   minval = 1,  group = grpCore)
+i_ovsLevel = input.int(20,  "OVS Level", minval = 1,  maxval = 49, group = grpCore)
+i_ovbLevel = input.int(80,  "OVB Level", minval = 51, maxval = 99, group = grpCore)
+
+grpRsiCut    = "📍 RSI Cut"
+i_rsiCutEnabled = input.bool(true,  "เปิดใช้ RSI Cut",  group = grpRsiCut)
+i_rsiPeriod     = input.int(14,     "RSI Period",       minval = 1, group = grpRsiCut)
+i_rsiOvsLevel   = input.int(30,     "RSI OVS Level",    minval = 1,  maxval = 49, group = grpRsiCut)
+i_rsiOvbLevel   = input.int(70,     "RSI OVB Level",    minval = 51, maxval = 99, group = grpRsiCut)
+
+grpEMA     = "📍 EMA"
+i_emaFast  = input.int(14, "Fast EMA",  minval = 1, group = grpEMA)
+i_emaSlow  = input.int(60, "Slow EMA",  minval = 1, group = grpEMA)
+i_showEMA  = input.bool(true, "แสดงเส้น EMA", group = grpEMA)
+i_showEMAbg = input.bool(true, "แสดงพื้นหลัง EMA Cross", group = grpEMA)
+
+grpPB      = "🎯 Pullback Strategy"
+i_emaSpreadMin  = input.float(0.1, "EMA Spread ขั้นต่ำ (%)", minval = 0.01, maxval = 5.0, step = 0.01, group = grpPB,
+     tooltip = "EMA 14/60 ห่างกันน้อยกว่านี้ = Sideway เล่นไม่ได้")
+i_pbBars        = input.int(2, "PB Candles", minval = 1, maxval = 5, group = grpPB,
+     tooltip = "จำนวนแท่งย่อติดต่อกันก่อนกลับตัว")
+i_pbSwingLen    = input.int(6, "Swing Lookback", minval = 3, maxval = 20, group = grpPB,
+     tooltip = "ช่วงหา Swing High/Low")
+i_pbH1          = input.bool(true, "H1 Pullback", group = grpPB)
+i_showPullback  = input.bool(true, "แสดง Pullback markers", group = grpPB)
+
+grpMom = "📈 Momentum Candle"
+i_momAvgLen    = input.int(15, "Avg Body Period", minval = 2, group = grpMom)
+i_momSuper     = input.float(1.5, "Super Multiplier", minval = 1.0, step = 0.1, group = grpMom)
+i_showMomBar   = input.bool(true, "แสดงสีแท่ง M15 Momentum", group = grpMom)
+
+grpDisplay = "📊 แสดงผล"
+i_showMarkers = input.bool(true,  "แสดงจุด OVS/OVB",      group = grpDisplay)
+i_maxMarkers  = input.int(30, "จำนวนจุดสูงสุด (คู่)",    minval = 5, maxval = 100, group = grpDisplay)
+i_showTrend   = input.bool(true, "แสดงป้ายเทรน (UP/DN)",  group = grpDisplay)
+i_showZones   = input.bool(false, "แสดงพื้นหลังโซน OVS/OVB", group = grpDisplay)
+i_showPattern = input.bool(false, "แสดงเส้น Flag Pattern", group = grpDisplay)
+i_pivotLen    = input.int(2, "Pivot Length (Flag)",       minval = 1, maxval = 5, group = grpDisplay)
+
+grpBosGen = "🔀 BOS/MSS General"
+i_bosHideMS     = input.bool(true,  "Hide all Market Structure", group = grpBosGen, tooltip = "ซ่อนป้าย HH/HL/LH/LL ทั้งหมด")
+i_bosHideBreaks = input.bool(false, "Hide all Structure Breaks", group = grpBosGen, tooltip = "ซ่อนเส้น BOS/MSS ทั้งหมด")
+i_bosLTFOnly    = input.bool(true,  "Show only on Lower TF",     group = grpBosGen, tooltip = "แสดง Structure เฉพาะเมื่อ chart TF ต่ำกว่า TF ที่ตั้งไว้")
+
+grpBosTF1 = "🔀 BOS/MSS — TF 1"
+i_b1_BOS      = input.bool(true,  "Show BOS",         group = grpBosTF1)
+i_b1_MSS      = input.bool(true,  "Show MSS",         group = grpBosTF1)
+i_b1_Chart    = input.bool(false, "Set to Chart TF",  group = grpBosTF1)
+i_b1_HL       = input.bool(false, "Use High/Low",     group = grpBosTF1, tooltip = "ใช้ High/Low แทน Close สำหรับ BOS/MSS")
+i_b1_ShowMS   = input.bool(true,  "Display Structure", group = grpBosTF1)
+i_b1_ShowTF   = input.bool(true,  "Display Timeframe", group = grpBosTF1)
+i_b1_AlBOS    = input.bool(true,  "BOS Alert",        group = grpBosTF1)
+i_b1_AlMSS    = input.bool(true,  "MSS Alert",        group = grpBosTF1)
+i_b1_Mult     = input.int(2,      "Timeframe",  minval = 1, maxval = 1440, group = grpBosTF1, inline = "T1")
+i_b1_Period   = input.string("Hour", "", options = ["Minute", "Hour", "Day", "Week", "Month"], group = grpBosTF1, inline = "T1")
+i_b1_Swing    = input.int(7,      "Swing Length", minval = 1, group = grpBosTF1)
+i_b1_LnType   = input.string("Solid", "Line Type", options = ["Solid", "Dashed", "Dotted"], group = grpBosTF1)
+i_b1_LnWidth  = input.int(2,      "Line Width", group = grpBosTF1)
+i_b1_TxtSz    = input.string("Small", "Text Size", options = ["Normal", "Tiny", "Small", "Large", "Huge", "Auto"], group = grpBosTF1)
+i_b1_BulCol   = input.color(color.green, "Bull BOS/MSS", group = grpBosTF1, inline = "C1")
+i_b1_BearCol  = input.color(color.red,   "Bear BOS/MSS", group = grpBosTF1, inline = "C1")
+i_b1_BulMS    = input.color(color.white,  "Bull MS Text", group = grpBosTF1, inline = "MC1")
+i_b1_BearMS   = input.color(color.white,  "Bear MS Text", group = grpBosTF1, inline = "MC1")
+
+grpBosTF2 = "🔀 BOS/MSS — TF 2"
+i_b2_BOS      = input.bool(true,  "Show BOS",         group = grpBosTF2)
+i_b2_MSS      = input.bool(true,  "Show MSS",         group = grpBosTF2)
+i_b2_Chart    = input.bool(true,  "Set to Chart TF",  group = grpBosTF2)
+i_b2_HL       = input.bool(false, "Use High/Low",     group = grpBosTF2, tooltip = "ใช้ High/Low แทน Close สำหรับ BOS/MSS")
+i_b2_ShowMS   = input.bool(true,  "Display Structure", group = grpBosTF2)
+i_b2_ShowTF   = input.bool(true,  "Display Timeframe", group = grpBosTF2)
+i_b2_AlBOS    = input.bool(true,  "BOS Alert",        group = grpBosTF2)
+i_b2_AlMSS    = input.bool(true,  "MSS Alert",        group = grpBosTF2)
+i_b2_Mult     = input.int(2,      "Timeframe",  minval = 1, maxval = 1440, group = grpBosTF2, inline = "T2")
+i_b2_Period   = input.string("Hour", "", options = ["Minute", "Hour", "Day", "Week", "Month"], group = grpBosTF2, inline = "T2")
+i_b2_Swing    = input.int(7,      "Swing Length", minval = 1, group = grpBosTF2)
+i_b2_LnType   = input.string("Dashed", "Line Type", options = ["Solid", "Dashed", "Dotted"], group = grpBosTF2)
+i_b2_LnWidth  = input.int(1,      "Line Width", group = grpBosTF2)
+i_b2_TxtSz    = input.string("Small", "Text Size", options = ["Normal", "Tiny", "Small", "Large", "Huge", "Auto"], group = grpBosTF2)
+i_b2_BulCol   = input.color(color.green, "Bull BOS/MSS", group = grpBosTF2, inline = "C2")
+i_b2_BearCol  = input.color(color.red,   "Bear BOS/MSS", group = grpBosTF2, inline = "C2")
+i_b2_BulMS    = input.color(color.white,  "Bull MS Text", group = grpBosTF2, inline = "MC2")
+i_b2_BearMS   = input.color(color.white,  "Bear MS Text", group = grpBosTF2, inline = "MC2")
+
+grpBosTF3 = "🔀 BOS/MSS — TF 3"
+i_b3_BOS      = input.bool(true,  "Show BOS",         group = grpBosTF3)
+i_b3_MSS      = input.bool(true,  "Show MSS",         group = grpBosTF3)
+i_b3_Chart    = input.bool(false, "Set to Chart TF",  group = grpBosTF3)
+i_b3_HL       = input.bool(false, "Use High/Low",     group = grpBosTF3, tooltip = "ใช้ High/Low แทน Close สำหรับ BOS/MSS")
+i_b3_ShowMS   = input.bool(false, "Display Structure", group = grpBosTF3)
+i_b3_ShowTF   = input.bool(false, "Display Timeframe", group = grpBosTF3)
+i_b3_AlBOS    = input.bool(true,  "BOS Alert",        group = grpBosTF3)
+i_b3_AlMSS    = input.bool(true,  "MSS Alert",        group = grpBosTF3)
+i_b3_Mult     = input.int(1,      "Timeframe",  minval = 1, maxval = 1440, group = grpBosTF3, inline = "T3")
+i_b3_Period   = input.string("Minute", "", options = ["Minute", "Hour", "Day", "Week", "Month"], group = grpBosTF3, inline = "T3")
+i_b3_Swing    = input.int(7,      "Swing Length", minval = 1, group = grpBosTF3)
+i_b3_LnType   = input.string("Dotted", "Line Type", options = ["Solid", "Dashed", "Dotted"], group = grpBosTF3)
+i_b3_LnWidth  = input.int(1,      "Line Width", group = grpBosTF3)
+i_b3_TxtSz    = input.string("Small", "Text Size", options = ["Normal", "Tiny", "Small", "Large", "Huge", "Auto"], group = grpBosTF3)
+i_b3_BulCol   = input.color(color.green, "Bull BOS/MSS", group = grpBosTF3, inline = "C3")
+i_b3_BearCol  = input.color(color.red,   "Bear BOS/MSS", group = grpBosTF3, inline = "C3")
+i_b3_BulMS    = input.color(color.white,  "Bull MS Text", group = grpBosTF3, inline = "MC3")
+i_b3_BearMS   = input.color(color.white,  "Bear MS Text", group = grpBosTF3, inline = "MC3")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────────────────────
+
+var int SM_WAIT_OVS = 0
+var int SM_WAIT_OVB = 1
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stochastic + RSI (chart TF)
+// ─────────────────────────────────────────────────────────────────────────────
+
+kRaw = ta.stoch(close, high, low, i_kPeriod)
+kVal = ta.sma(kRaw, i_slowing)
+
+inOvs = kVal < i_ovsLevel
+inOvb = kVal > i_ovbLevel
+
+rsiRaw = ta.rsi(close, i_rsiPeriod)
+rsiInOvs = rsiRaw < i_rsiOvsLevel
+rsiInOvb = rsiRaw > i_rsiOvbLevel
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TF Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+formatTF(string tf) =>
+    result = switch tf
+        "1"    => "M1"
+        "3"    => "M3"
+        "5"    => "M5"
+        "15"   => "M15"
+        "30"   => "M30"
+        "45"   => "M45"
+        "60"   => "H1"
+        "120"  => "H2"
+        "180"  => "H3"
+        "240"  => "H4"
+        "D"    => "Day"
+        "1D"   => "Day"
+        "W"    => "Week"
+        "1W"   => "Week"
+        "M"    => "Month"
+        "1M"   => "Month"
+        => tf
+    result
+
+mainTFTag = formatTF(timeframe.period)
+isM15     = timeframe.period == "15"
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BOS/MSS Helper Functions
+// ─────────────────────────────────────────────────────────────────────────────
+
+Transparent_Color = color.new(color.white, 100)
+
+bosLineStyle(string Type) =>
+    switch Type
+        "Solid"  => line.style_solid
+        "Dashed" => line.style_dashed
+        "Dotted" => line.style_dotted
+        => line.style_solid
+
+bosTextSize(string sz) =>
+    switch sz
+        "Normal" => size.normal
+        "Tiny"   => size.tiny
+        "Small"  => size.small
+        "Large"  => size.large
+        "Huge"   => size.huge
+        "Auto"   => size.auto
+        => size.small
+
+bosTF(string TF_Period, int TF_Multip) =>
+    switch TF_Period
+        "Minute" => str.tostring(TF_Multip)
+        "Hour"   => str.tostring(TF_Multip * 60)
+        "Day"    => str.tostring(TF_Multip) + "D"
+        "Week"   => str.tostring(TF_Multip) + "W"
+        "Month"  => str.tostring(TF_Multip) + "M"
+        => timeframe.period
+
+bosTFDisplay(bool ChartTF, string TF_Period, int TF_Multip) =>
+    if not ChartTF
+        switch TF_Period
+            "Minute" => str.tostring(TF_Multip) + "Min"
+            "Hour"   => str.tostring(TF_Multip) + "H"
+            "Day"    => str.tostring(TF_Multip) + "D"
+            "Week"   => str.tostring(TF_Multip) + "W"
+            "Month"  => str.tostring(TF_Multip) + "M"
+    else
+        switch
+            timeframe.isminutes and timeframe.multiplier % 60 != 0 => str.tostring(timeframe.multiplier) + "Min"
+            timeframe.isminutes and timeframe.multiplier % 60 == 0 => str.tostring(timeframe.multiplier / 60) + "H"
+            timeframe.isdaily   => str.tostring(timeframe.multiplier) + "D"
+            timeframe.isweekly  => str.tostring(timeframe.multiplier) + "W"
+            timeframe.ismonthly => str.tostring(timeframe.multiplier) + "M"
+
+bosMTFOffset(bool ChartTF, string TF_Period, int TF_Multip, int Swing_Length) =>
+    if ChartTF
+        Swing_Length
+    else
+        tm = timeframe.multiplier
+        isMin   = timeframe.isminutes
+        isMinH  = isMin and tm % 60 == 0
+        isMinM  = isMin and tm % 60 != 0
+        tfMin   = TF_Multip * 1440
+        result  = Swing_Length
+        if TF_Period == "Month"
+            if isMinH and (24 * 5 * 5 / (tfMin * 5 * 5 / tm)) * 60 == tm
+                result := tfMin * 5 * 5 / tm * Swing_Length
+            else if timeframe.isweekly and (5 / (tfMin * 5 / tm)) * 1440 == tm
+                result := tfMin * 5 / 1440 * Swing_Length
+            else if timeframe.isdaily and (5 * 5 / (tfMin * 5 * 5 / tm)) * 1440 == tm
+                result := tfMin * 5 * 5 / 1440 * Swing_Length
+            else if timeframe.ismonthly and tm == TF_Multip
+                result := Swing_Length
+        else if TF_Period == "Week"
+            if isMinH and (24 * 5 / (tfMin * 5 / tm)) * 60 == tm
+                result := tfMin * 5 / tm * Swing_Length
+            else if timeframe.isdaily and (5 / (tfMin * 5 / tm)) * 1440 == tm
+                result := tfMin * 5 / 1440 * Swing_Length
+            else if timeframe.isweekly and tm == TF_Multip
+                result := Swing_Length
+        else if TF_Period == "Day"
+            if isMinH and (24 / (tfMin / tm)) * 60 == tm
+                result := tfMin / tm * Swing_Length
+            else if timeframe.isdaily and tm == TF_Multip
+                result := Swing_Length
+        else if TF_Period == "Minute"
+            if isMinM and TF_Multip == tm
+                result := Swing_Length
+            else if isMinM and TF_Multip != tm
+                result := (TF_Multip / 60) * 60 / tm * Swing_Length
+        else if TF_Period == "Hour"
+            if isMinM and TF_Multip != tm
+                result := TF_Multip * 60 / tm * Swing_Length
+            else if isMinM and TF_Multip == tm and tm * 60 == 60
+                result := TF_Multip * 60 / tm * Swing_Length
+            else if isMinM
+                result := TF_Multip * 1440 / 60 * 60 / tm * Swing_Length
+            else if isMinH and TF_Multip * 60 == tm
+                result := Swing_Length
+            else if isMinH and TF_Multip * 60 != tm
+                result := TF_Multip * 60 / tm * Swing_Length
+        result
+
+bosHTFControl(bool ChartTF, string TF_Period, int TF_Multip) =>
+    if ChartTF
+        true
+    else if not i_bosLTFOnly
+        true
+    else
+        switch
+            TF_Period == "Minute" and TF_Multip < timeframe.multiplier and timeframe.isminutes   => false
+            TF_Period == "Minute" and TF_Multip >= timeframe.multiplier and timeframe.isminutes  => true
+            TF_Period == "Minute" and timeframe.isdaily    => false
+            TF_Period == "Minute" and timeframe.isweekly   => false
+            TF_Period == "Minute" and timeframe.ismonthly  => false
+            TF_Period == "Hour" and TF_Multip * 60 < timeframe.multiplier and timeframe.isminutes  => false
+            TF_Period == "Hour" and TF_Multip * 60 >= timeframe.multiplier and timeframe.isminutes => true
+            TF_Period == "Hour" and timeframe.isdaily    => false
+            TF_Period == "Hour" and timeframe.isweekly   => false
+            TF_Period == "Hour" and timeframe.ismonthly  => false
+            (TF_Period == "Day") and (timeframe.isdaily or timeframe.isminutes)    => true
+            (TF_Period == "Week") and (timeframe.isweekly or timeframe.isdaily or timeframe.isminutes) => true
+            (TF_Period == "Month") and (timeframe.ismonthly or timeframe.isweekly or timeframe.isdaily or timeframe.isminutes) => true
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main SM State Variables (chart TF)
+// ─────────────────────────────────────────────────────────────────────────────
+
+var int   smState = SM_WAIT_OVS
+var float ovsLow  = na
+var int   ovsBar  = na
+var float ovbHigh = na
+var int   ovbBar  = na
+
+var label curOvsLbl = na
+var label curOvbLbl = na
+var array<label> allMarkers = array.new<label>()
+
+var float confirmedOvbHigh    = na
+var int   confirmedOvbBar    = na
+var float prevConfirmedOvsLow = na
+var int   prevConfirmedOvsBar = na
+var int   trend        = 0
+var float prevOvbHigh  = na
+var array<label> trendLabels = array.new<label>()
+
+var float patPivHi    = na
+var int   patPivHiBar = na
+var float patPivLo    = na
+var int   patPivLoBar = na
+var array<line> patLines = array.new<line>()
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RSI Mountain Cut State Machine
+// ─────────────────────────────────────────────────────────────────────────────
+
+var int  RSI_WAIT_FIRST_OVS  = 0
+var int  RSI_WAIT_OVB        = 1
+var int  RSI_WAIT_SECOND_OVS = 2
+
+var int   rsiCutState = RSI_WAIT_FIRST_OVS
+var bool  rsiCutBar   = false
+
+if i_rsiCutEnabled
+    rsiCutBar := false
+    if rsiCutState == RSI_WAIT_FIRST_OVS and rsiInOvs
+        rsiCutState := RSI_WAIT_OVB
+    else if rsiCutState == RSI_WAIT_OVB and rsiInOvb
+        rsiCutState := RSI_WAIT_SECOND_OVS
+    else if rsiCutState == RSI_WAIT_SECOND_OVS and rsiInOvs
+        rsiCutBar  := true
+        rsiCutState := RSI_WAIT_FIRST_OVS
+
+bgcolor(i_rsiCutEnabled and rsiCutBar ? color.new(color.purple, 70) : na, title = "RSI CUT")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pivot Detection
+// ─────────────────────────────────────────────────────────────────────────────
+
+pivHi = ta.pivothigh(high, i_pivotLen, i_pivotLen)
+pivLo = ta.pivotlow(low, i_pivotLen, i_pivotLen)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main State Machine (chart TF)
+// ─────────────────────────────────────────────────────────────────────────────
+
+switch smState
+    SM_WAIT_OVS =>
+        if not na(pivHi) and na(patPivHi)
+            patPivHi    := pivHi
+            patPivHiBar := bar_index - i_pivotLen
+        if not na(pivLo) and na(patPivLo)
+            patPivLo    := pivLo
+            patPivLoBar := bar_index - i_pivotLen
+
+        if na(ovsLow) or low < ovsLow
+            ovsLow  := low
+            ovsBar  := bar_index
+            ovbHigh := high
+            ovbBar  := bar_index
+            if i_showMarkers
+                if na(curOvsLbl)
+                    curOvsLbl := label.new(bar_index, low, "⏳ S",
+                         style = label.style_label_up, color = color.new(color.aqua, 30),
+                         textcolor = color.white, size = size.small)
+                else
+                    label.set_x(curOvsLbl, bar_index)
+                    label.set_y(curOvsLbl, low)
+        else
+            if na(ovbHigh) or high > ovbHigh
+                ovbHigh := high
+                ovbBar  := bar_index
+
+        if inOvb and not na(ovsLow)
+            savedOvsLow = ovsLow
+            savedOvsBar = ovsBar
+
+            if not na(curOvsLbl)
+                label.set_text(curOvsLbl, "S")
+                label.set_style(curOvsLbl, label.style_diamond)
+                label.set_color(curOvsLbl, color.aqua)
+                label.set_textcolor(curOvsLbl, color.aqua)
+                label.set_size(curOvsLbl, size.tiny)
+                array.push(allMarkers, curOvsLbl)
+                curOvsLbl := na
+
+            if not na(prevConfirmedOvsLow)
+                isHL = savedOvsLow > prevConfirmedOvsLow
+                isLL = savedOvsLow < prevConfirmedOvsLow
+                if trend == 0 and isHL
+                    trend := 2
+                    if i_showTrend
+                        array.push(trendLabels, label.new(savedOvsBar, savedOvsLow, "⚠HL",
+                             style = label.style_label_up, color = color.new(color.yellow, 10),
+                             textcolor = color.black, size = size.small))
+                else if trend == 0 and isLL
+                    trend := -1
+                    if i_showTrend
+                        array.push(trendLabels, label.new(savedOvsBar, savedOvsLow, "DN",
+                             style = label.style_label_up, color = color.new(color.red, 10),
+                             textcolor = color.white, size = size.normal))
+                else if trend == -1 and isHL
+                    trend := 2
+                    if i_showTrend
+                        array.push(trendLabels, label.new(savedOvsBar, savedOvsLow, "⚠HL",
+                             style = label.style_label_up, color = color.new(color.yellow, 10),
+                             textcolor = color.black, size = size.small))
+                else if trend == 1 and isLL
+                    trend := -2
+                    if i_showTrend
+                        array.push(trendLabels, label.new(savedOvsBar, savedOvsLow, "⚠LL",
+                             style = label.style_label_up, color = color.new(color.yellow, 10),
+                             textcolor = color.black, size = size.small))
+                else if trend == -2 and isLL
+                    trend := -1
+                    if i_showTrend
+                        array.push(trendLabels, label.new(savedOvsBar, savedOvsLow, "DN",
+                             style = label.style_label_up, color = color.new(color.red, 10),
+                             textcolor = color.white, size = size.normal))
+                else if trend == -2 and isHL
+                    trend := 1
+                    if i_showTrend
+                        array.push(trendLabels, label.new(savedOvsBar, savedOvsLow, "UP",
+                             style = label.style_label_up, color = color.new(color.green, 10),
+                             textcolor = color.white, size = size.normal))
+
+            prevConfirmedOvsLow := savedOvsLow
+            prevConfirmedOvsBar := savedOvsBar
+
+            if i_showPattern and not na(confirmedOvbHigh) and not na(confirmedOvbBar)
+                if not na(patPivHi) and not na(patPivHiBar)
+                    upperLine = line.new(confirmedOvbBar, confirmedOvbHigh, patPivHiBar, patPivHi,
+                         color = color.new(color.white, 20), width = 1, style = line.style_solid, extend = extend.right)
+                    array.push(patLines, upperLine)
+                if not na(patPivLo) and not na(patPivLoBar)
+                    lowerLine = line.new(patPivLoBar, patPivLo, savedOvsBar, savedOvsLow,
+                         color = color.new(color.white, 20), width = 1, style = line.style_solid, extend = extend.right)
+                    array.push(patLines, lowerLine)
+                while array.size(patLines) > 10
+                    line.delete(array.get(patLines, 0))
+                    array.remove(patLines, 0)
+
+            patPivHi    := na
+            patPivHiBar := na
+            patPivLo    := na
+            patPivLoBar := na
+
+            smState := SM_WAIT_OVB
+            ovsLow  := na
+            ovsBar  := na
+            if i_showMarkers
+                curOvbLbl := label.new(ovbBar, ovbHigh, "⏳ B",
+                     style = label.style_label_down, color = color.new(color.orange, 30),
+                     textcolor = color.white, size = size.small)
+
+    SM_WAIT_OVB =>
+        if na(ovbHigh) or high > ovbHigh
+            ovbHigh := high
+            ovbBar  := bar_index
+            ovsLow  := low
+            ovsBar  := bar_index
+            if i_showMarkers
+                if na(curOvbLbl)
+                    curOvbLbl := label.new(bar_index, high, "⏳ B",
+                         style = label.style_label_down, color = color.new(color.orange, 30),
+                         textcolor = color.white, size = size.small)
+                else
+                    label.set_x(curOvbLbl, bar_index)
+                    label.set_y(curOvbLbl, high)
+        else
+            if na(ovsLow) or low < ovsLow
+                ovsLow := low
+                ovsBar := bar_index
+
+        if inOvs
+            finalOvbHigh = ovbHigh
+            finalOvbBar  = ovbBar
+
+            if not na(prevOvbHigh)
+                isHH = finalOvbHigh > prevOvbHigh
+                isLH = finalOvbHigh < prevOvbHigh
+                if trend == 1 and isLH
+                    trend := -2
+                    if i_showTrend
+                        array.push(trendLabels, label.new(finalOvbBar, finalOvbHigh, "⚠LH",
+                             style = label.style_label_down, color = color.new(color.yellow, 10),
+                             textcolor = color.black, size = size.small))
+                else if trend == -1 and isHH
+                    trend := 2
+                    if i_showTrend
+                        array.push(trendLabels, label.new(finalOvbBar, finalOvbHigh, "⚠HH",
+                             style = label.style_label_down, color = color.new(color.yellow, 10),
+                             textcolor = color.black, size = size.small))
+                else if trend == 2 and isHH
+                    trend := 1
+                    if i_showTrend
+                        array.push(trendLabels, label.new(finalOvbBar, finalOvbHigh, "UP",
+                             style = label.style_label_down, color = color.new(color.green, 10),
+                             textcolor = color.white, size = size.normal))
+                else if trend == 2 and isLH
+                    trend := -1
+                    if i_showTrend
+                        array.push(trendLabels, label.new(finalOvbBar, finalOvbHigh, "DN",
+                             style = label.style_label_down, color = color.new(color.red, 10),
+                             textcolor = color.white, size = size.normal))
+                else if trend == -2 and isLH
+                    trend := -1
+                    if i_showTrend
+                        array.push(trendLabels, label.new(finalOvbBar, finalOvbHigh, "DN",
+                             style = label.style_label_down, color = color.new(color.red, 10),
+                             textcolor = color.white, size = size.normal))
+                else if trend == -2 and isHH
+                    trend := 1
+                    if i_showTrend
+                        array.push(trendLabels, label.new(finalOvbBar, finalOvbHigh, "UP",
+                             style = label.style_label_down, color = color.new(color.green, 10),
+                             textcolor = color.white, size = size.normal))
+
+            prevOvbHigh      := finalOvbHigh
+            confirmedOvbHigh := finalOvbHigh
+            confirmedOvbBar  := finalOvbBar
+
+            if not na(curOvbLbl)
+                label.set_text(curOvbLbl, "B")
+                label.set_style(curOvbLbl, label.style_diamond)
+                label.set_color(curOvbLbl, color.orange)
+                label.set_textcolor(curOvbLbl, color.orange)
+                label.set_size(curOvbLbl, size.tiny)
+                array.push(allMarkers, curOvbLbl)
+                curOvbLbl := na
+
+            patPivHi    := na
+            patPivHiBar := na
+            patPivLo    := na
+            patPivLoBar := na
+
+            smState := SM_WAIT_OVS
+            ovbHigh := na
+            ovbBar  := na
+            if i_showMarkers
+                curOvsLbl := label.new(ovsBar, ovsLow, "⏳ S",
+                     style = label.style_label_up, color = color.new(color.aqua, 30),
+                     textcolor = color.white, size = size.small)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cleanup old markers
+// ─────────────────────────────────────────────────────────────────────────────
+
+while array.size(allMarkers) > i_maxMarkers * 2
+    label.delete(array.get(allMarkers, 0))
+    array.remove(allMarkers, 0)
+
+while array.size(trendLabels) > 20
+    label.delete(array.get(trendLabels, 0))
+    array.remove(trendLabels, 0)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Zone Visualization
+// ─────────────────────────────────────────────────────────────────────────────
+
+bgcolor(i_showZones and inOvs ? color.new(color.blue, 88) : na, title = "OVS Zone")
+bgcolor(i_showZones and inOvb ? color.new(color.red, 88) : na,  title = "OVB Zone")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EMA + Cross Background
+// ─────────────────────────────────────────────────────────────────────────────
+
+emaFast = ta.ema(close, i_emaFast)
+emaSlow = ta.ema(close, i_emaSlow)
+
+pFast = plot(i_showEMA ? emaFast : na, "EMA Fast", color.new(color.yellow, 0), 2)
+pSlow = plot(i_showEMA ? emaSlow : na, "EMA Slow", color.new(#FF9800, 0), 2)
+
+cloudCol = emaFast > emaSlow ? color.new(color.green, 85) : color.new(color.red, 85)
+fill(pFast, pSlow, i_showEMAbg ? cloudCol : na, title = "EMA Cloud")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Momentum Candle — Body Range vs Average
+// ─────────────────────────────────────────────────────────────────────────────
+
+bodyRange = math.abs(close - open)
+avgBody   = ta.sma(bodyRange, i_momAvgLen)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pre-fetch: OVS/OVB Trend SM (runs natively on target TF inside request.security)
+// ─────────────────────────────────────────────────────────────────────────────
+
+var int   _tfSmSt      = SM_WAIT_OVS
+var float _tfSmOvsLow  = na
+var float _tfSmOvbHigh = na
+var float _tfPrevOvsLo = na
+var float _tfPrevOvbHi = na
+var int   _tfOvsTrend  = 0
+
+_tfInOvs = kVal < i_ovsLevel
+_tfInOvb = kVal > i_ovbLevel
+
+if _tfSmSt == SM_WAIT_OVS
+    if na(_tfSmOvsLow) or low < _tfSmOvsLow
+        _tfSmOvsLow  := low
+        _tfSmOvbHigh := high
+    else
+        if na(_tfSmOvbHigh) or high > _tfSmOvbHigh
+            _tfSmOvbHigh := high
+    if _tfInOvb and not na(_tfSmOvsLow)
+        _sl = _tfSmOvsLow
+        if not na(_tfPrevOvsLo)
+            _hl = _sl > _tfPrevOvsLo
+            _ll = _sl < _tfPrevOvsLo
+            if _tfOvsTrend == 0 and _hl
+                _tfOvsTrend := 2
+            else if _tfOvsTrend == 0 and _ll
+                _tfOvsTrend := -1
+            else if _tfOvsTrend == -1 and _hl
+                _tfOvsTrend := 2
+            else if _tfOvsTrend == 1 and _ll
+                _tfOvsTrend := -2
+            else if _tfOvsTrend == -2 and _ll
+                _tfOvsTrend := -1
+            else if _tfOvsTrend == -2 and _hl
+                _tfOvsTrend := 1
+        _tfPrevOvsLo := _sl
+        _tfSmSt      := SM_WAIT_OVB
+        _tfSmOvsLow  := na
+else if _tfSmSt == SM_WAIT_OVB
+    if na(_tfSmOvbHigh) or high > _tfSmOvbHigh
+        _tfSmOvbHigh := high
+        _tfSmOvsLow  := low
+    else
+        if na(_tfSmOvsLow) or low < _tfSmOvsLow
+            _tfSmOvsLow := low
+    if _tfInOvs and not na(_tfSmOvbHigh)
+        _sh = _tfSmOvbHigh
+        if not na(_tfPrevOvbHi)
+            _hh = _sh > _tfPrevOvbHi
+            _lh = _sh < _tfPrevOvbHi
+            if _tfOvsTrend == 1 and _lh
+                _tfOvsTrend := -2
+            else if _tfOvsTrend == -1 and _hh
+                _tfOvsTrend := 2
+            else if _tfOvsTrend == 2 and _hh
+                _tfOvsTrend := 1
+            else if _tfOvsTrend == 2 and _lh
+                _tfOvsTrend := -1
+            else if _tfOvsTrend == -2 and _lh
+                _tfOvsTrend := -1
+            else if _tfOvsTrend == -2 and _hh
+                _tfOvsTrend := 1
+        _tfPrevOvbHi := _sh
+        _tfSmSt      := SM_WAIT_OVS
+        _tfSmOvbHigh := na
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Multi-TF Data Fetching
+// ─────────────────────────────────────────────────────────────────────────────
+
+h1SwingLo = ta.lowest(low, i_pbSwingLen)
+h1SwingHi = ta.highest(high, i_pbSwingLen)
+h1PivHi   = ta.pivothigh(high, i_pbSwingLen, i_pbSwingLen)
+h1PivLo   = ta.pivotlow(low, i_pbSwingLen, i_pbSwingLen)
+prevC1 = close[1]
+prevC2 = close[2]
+prevC3 = close[3]
+
+[h1C, h1H, h1L, h1EmaF, h1EmaS, h1T, h1SwL, h1SwH, h1PivH, h1PivL, h1PrevC1, h1PrevC2, h1PrevC3] = request.security(syminfo.tickerid, "60",
+     [close, high, low, emaFast, emaSlow, time, h1SwingLo, h1SwingHi, h1PivHi, h1PivLo, prevC1, prevC2, prevC3])
+[m15O, m15C, m15Body, m15AvgB, m15OvsTrend] = request.security(syminfo.tickerid, "15",
+     [open, close, bodyRange, avgBody, _tfOvsTrend])
+m5OvsTrend = request.security(syminfo.tickerid, "5", _tfOvsTrend)
+
+// --- BOS/MSS Swing Pivot Data ---
+[bos1_SH, bos1_SL] = request.security(syminfo.tickerid,
+     i_b1_Chart ? timeframe.period : bosTF(i_b1_Period, i_b1_Mult),
+     [ta.pivothigh(high, i_b1_Swing, i_b1_Swing), ta.pivotlow(low, i_b1_Swing, i_b1_Swing)],
+     gaps = barmerge.gaps_on)
+[bos2_SH, bos2_SL] = request.security(syminfo.tickerid,
+     i_b2_Chart ? timeframe.period : bosTF(i_b2_Period, i_b2_Mult),
+     [ta.pivothigh(high, i_b2_Swing, i_b2_Swing), ta.pivotlow(low, i_b2_Swing, i_b2_Swing)],
+     gaps = barmerge.gaps_on)
+[bos3_SH, bos3_SL] = request.security(syminfo.tickerid,
+     i_b3_Chart ? timeframe.period : bosTF(i_b3_Period, i_b3_Mult),
+     [ta.pivothigh(high, i_b3_Swing, i_b3_Swing), ta.pivotlow(low, i_b3_Swing, i_b3_Swing)],
+     gaps = barmerge.gaps_on)
+
+// --- H1 Bar change detection ---
+var int prevH1T = na
+h1BarNew = not na(h1T) and (na(prevH1T) or h1T != prevH1T)
+if not na(h1T)
+    prevH1T := h1T
+
+// --- H1 Real Swing tracking (pivot-based) ---
+var float h1LastSwHi    = na
+var float h1LastSwLo    = na
+var int   h1LastSwHiBar = na
+var int   h1LastSwLoBar = na
+if h1BarNew and not na(h1PivH)
+    h1LastSwHi    := h1PivH
+    h1LastSwHiBar := bar_index - i_pbSwingLen
+    if i_showPullback and timeframe.period == "60"
+        label.new(bar_index - i_pbSwingLen, h1PivH, "SH\n" + str.tostring(h1PivH, format.mintick),
+             style = label.style_diamond, color = color.new(#4FC3F7, 30),
+             textcolor = color.new(#4FC3F7, 0), size = size.tiny, yloc = yloc.abovebar)
+if h1BarNew and not na(h1PivL)
+    h1LastSwLo    := h1PivL
+    h1LastSwLoBar := bar_index - i_pbSwingLen
+    if i_showPullback and timeframe.period == "60"
+        label.new(bar_index - i_pbSwingLen, h1PivL, "SL\n" + str.tostring(h1PivL, format.mintick),
+             style = label.style_diamond, color = color.new(#CE93D8, 30),
+             textcolor = color.new(#CE93D8, 0), size = size.tiny, yloc = yloc.belowbar)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H1 EMA Trend (used by Pullback)
+// ─────────────────────────────────────────────────────────────────────────────
+
+h1SpreadPct  = not na(h1EmaF) and not na(h1EmaS) and h1C > 0 ? math.abs(h1EmaF - h1EmaS) / h1C * 100 : 0.0
+h1IsTrending = h1SpreadPct >= i_emaSpreadMin
+h1Trend      = h1IsTrending ? (h1EmaF > h1EmaS ? 1 : -1) : 0
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H1 Pullback = Candle Pattern (consecutive pullback + reversal at swing)
+// ─────────────────────────────────────────────────────────────────────────────
+
+var bool   h1PbActive    = false
+var float  h1PbLevel     = na
+var float  prevPbLow     = na
+var float  prevPbHigh    = na
+var int    h1PbScore     = 0
+var string h1PbGrade     = ""
+var string h1PbBreakdown = ""
+
+h1IsGreen = not na(h1C) and not na(h1PrevC1) and h1C > h1PrevC1
+h1IsRed   = not na(h1C) and not na(h1PrevC1) and h1C < h1PrevC1
+
+h1ConsDown1 = not na(h1PrevC1) and not na(h1PrevC2) and h1PrevC1 < h1PrevC2
+h1ConsDown2 = h1ConsDown1 and not na(h1PrevC3) and h1PrevC2 < h1PrevC3
+h1ConsUp1   = not na(h1PrevC1) and not na(h1PrevC2) and h1PrevC1 > h1PrevC2
+h1ConsUp2   = h1ConsUp1 and not na(h1PrevC3) and h1PrevC2 > h1PrevC3
+
+h1PbDownOk = i_pbBars >= 2 ? h1ConsDown2 : h1ConsDown1
+h1PbUpOk   = i_pbBars >= 2 ? h1ConsUp2   : h1ConsUp1
+
+h1AtSwingLo = not na(h1L) and not na(h1SwL) and (h1L <= h1SwL or low[1] <= h1SwL)
+h1AtSwingHi = not na(h1H) and not na(h1SwH) and (h1H >= h1SwH or high[1] >= h1SwH)
+
+m15TrendOk = h1Trend == 1 ? m15OvsTrend >= 0 : h1Trend == -1 ? m15OvsTrend <= 0 : true
+h1PbBull = h1Trend == 1  and h1PbDownOk and h1IsGreen and h1AtSwingLo and m15TrendOk
+h1PbBear = h1Trend == -1 and h1PbUpOk   and h1IsRed   and h1AtSwingHi and m15TrendOk
+
+pbScoreGrade(int _score) =>
+    _score >= 8 ? "A" : _score >= 6 ? "B" : _score >= 4 ? "C" : "D"
+
+pbGradeCol(string _grade, int _dir) =>
+    if _grade == "A"
+        _dir == 1 ? color.new(#00C853, 10) : color.new(#D50000, 10)
+    else if _grade == "B"
+        _dir == 1 ? color.new(color.lime, 10) : color.new(color.red, 10)
+    else if _grade == "C"
+        color.new(color.yellow, 10)
+    else
+        color.new(color.gray, 10)
+
+calcPbScore(bool _isBull, float _h1SwH, float _h1SwL, float _pbLevel,
+     float _spreadPct, float _prevLow, float _prevHigh,
+     int _m15Trend, int _m5Trend) =>
+    _range = _h1SwH - _h1SwL
+    _depth = _range > 0 ? (_isBull ? (_h1SwH - _pbLevel) / _range : (_pbLevel - _h1SwL) / _range) : 1.0
+    _dPts = _depth < 0.382 ? 3 : _depth < 0.50 ? 2 : _depth < 0.618 ? 1 : 0
+    _tPts = _spreadPct > 0.5 ? 3 : _spreadPct > 0.3 ? 2 : _spreadPct > 0.1 ? 1 : 0
+    _sPts = 1
+    if _isBull and not na(_prevLow)
+        _sPts := _pbLevel > _prevLow ? 2 : _pbLevel < _prevLow ? 0 : 1
+    else if not _isBull and not na(_prevHigh)
+        _sPts := _pbLevel < _prevHigh ? 2 : _pbLevel > _prevHigh ? 0 : 1
+    _cPts = (_isBull ? (_m15Trend > 0 ? 1 : 0) : (_m15Trend < 0 ? 1 : 0)) +
+         (_isBull ? (_m5Trend > 0 ? 1 : 0) : (_m5Trend < 0 ? 1 : 0))
+    _total = _dPts + _tPts + _sPts + _cPts
+    _depthPct = _depth * 100
+    [_total, _dPts, _tPts, _sPts, _cPts, _depthPct]
+
+fiboZoneTxt(float _depthPct) =>
+    _depthPct < 23.6 ? "< 23.6%" :
+     _depthPct < 38.2 ? "23.6–38.2%" :
+     _depthPct < 50.0 ? "38.2–50%" :
+     _depthPct < 61.8 ? "50–61.8%" :
+     _depthPct < 78.6 ? "61.8–78.6%" : "> 78.6%"
+
+drawPbLabel(int _trend, float _level, int _bar, string _grade, int _score,
+     int _d, int _t, int _s, int _c, float _depthPct) =>
+    _arrow = _trend == 1 ? "▲" : "▼"
+    _zone  = fiboZoneTxt(_depthPct)
+    _line1 = "PB " + _arrow + " " + _grade + " (" + str.tostring(_score) + "/10)"
+    _line2 = "Fib " + _zone + " (" + str.tostring(_depthPct, "#.#") + "%)"
+    _line3 = "D" + str.tostring(_d) + " T" + str.tostring(_t) + " S" + str.tostring(_s) + " C" + str.tostring(_c)
+    _txt = _line1 + "\n" + _line2 + "\n" + _line3
+    _col = pbGradeCol(_grade, _trend)
+    _sty = _trend == 1 ? label.style_label_up : label.style_label_down
+    label.new(_bar, _level, _txt, style = _sty, color = _col,
+         textcolor = color.white, size = size.small)
+
+if not i_pbH1 or h1Trend == 0
+    h1PbActive := false
+    h1PbLevel  := na
+else if h1BarNew and (h1PbBull or h1PbBear)
+    h1PbActive := true
+    _lvl = h1PbBull ? h1L : h1H
+    h1PbLevel  := _lvl
+    [_sc, _d, _t, _s, _c, _depPct] = calcPbScore(h1PbBull, h1LastSwHi, h1LastSwLo, _lvl,
+         h1SpreadPct, prevPbLow, prevPbHigh, m15OvsTrend, m5OvsTrend)
+    h1PbScore     := _sc
+    h1PbGrade     := pbScoreGrade(_sc)
+    h1PbBreakdown := "D" + str.tostring(_d) + " T" + str.tostring(_t) + " S" + str.tostring(_s) + " C" + str.tostring(_c)
+    if h1PbBull
+        prevPbLow := _lvl
+    else
+        prevPbHigh := _lvl
+    if i_showPullback and timeframe.period == "60"
+        drawPbLabel(h1Trend, h1PbLevel, bar_index, h1PbGrade, _sc, _d, _t, _s, _c, _depPct)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H1 Pullback Alert
+// ─────────────────────────────────────────────────────────────────────────────
+
+h1PbJustFired = h1BarNew and (h1PbBull or h1PbBear)
+alertcondition(h1PbJustFired and h1PbBull, title = "H1 Pullback Bull", message = '{"type":"PB","dir":"BULL","pair":"{{ticker}}","tf":"H1","price":"{{close}}","time":"{{time}}"}')
+alertcondition(h1PbJustFired and h1PbBear, title = "H1 Pullback Bear", message = '{"type":"PB","dir":"BEAR","pair":"{{ticker}}","tf":"H1","price":"{{close}}","time":"{{time}}"}')
+
+// ─────────────────────────────────────────────────────────────────────────────
+// M15 Momentum Candle
+// ─────────────────────────────────────────────────────────────────────────────
+
+m15Bull = m15C > m15O
+m15SuperBody   = not na(m15Body) and not na(m15AvgB) and m15Body > m15AvgB * i_momSuper
+m15AboveAvg    = not na(m15Body) and not na(m15AvgB) and m15Body > m15AvgB
+
+m15Mom = m15SuperBody ? (m15Bull ? 2 : -2) : m15AboveAvg ? (m15Bull ? 1 : -1) : 0
+
+aboveAvgBullClr = color.new(#66BB6A, 0)
+superBullClr    = color.new(#1B5E20, 0)
+aboveAvgBearClr = color.new(#EF5350, 0)
+superBearClr    = color.new(#B71C1C, 0)
+
+m15MomCol = not i_showMomBar or not isM15 ? na :
+     m15Mom ==  2 ? superBullClr :
+     m15Mom == -2 ? superBearClr :
+     m15Mom ==  1 ? aboveAvgBullClr :
+     m15Mom == -1 ? aboveAvgBearClr : na
+
+barcolor(m15MomCol, title = "M15 Momentum")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BOS/MSS Market Structure Function
+// ─────────────────────────────────────────────────────────────────────────────
+
+Market_Structure(float TF_SH, float TF_SL, int Swing_Length, bool ChartTF, string TF_Period, int TF_Multip,
+     string Line_Type, int Line_Width, bool Display_TF, bool Display_MS, color Bul_Bos_Col, color Bear_Bos_Col,
+     color Bul_Ms_Col, color Bear_Ms_Col, string TF_Text_Size, bool Use_HL, bool Use_BOS_Alert, bool Use_MSS_Alert,
+     bool Use_Bos_Plot, bool Use_MSS_Plot) =>
+
+    var float TF_Prev_High = na
+    var float TF_Prev_Low  = na
+    TF_Prev_High_Time = 0
+    TF_Prev_Low_Time  = 0
+    High_Count = 0
+    Low_Count  = 0
+
+    var bool TF_High_Present = false
+    var bool TF_Low_Present  = false
+    var int  Prev_Breakout_Type = 0
+
+    bool High_Broken = false
+    bool Low_Broken  = false
+    End_High_Time = 0
+    End_Low_Time  = 0
+
+    bool HH = false
+    bool LH = false
+    bool HL = false
+    bool LL = false
+
+    TF_High_Close_Price = request.security(syminfo.tickerid,
+         ChartTF ? timeframe.period : bosTF(TF_Period, TF_Multip),
+         Use_HL ? high : close)
+    TF_Low_Close_Price = request.security(syminfo.tickerid,
+         ChartTF ? timeframe.period : bosTF(TF_Period, TF_Multip),
+         Use_HL ? low : close)
+
+    if not na(TF_SH)
+        if TF_SH >= TF_Prev_High
+            HH := true
+        else
+            LH := true
+        TF_Prev_High := TF_SH
+        TF_Prev_High_Time := TF_Prev_High != TF_Prev_High[1] ? time[bosMTFOffset(ChartTF, TF_Period, TF_Multip, Swing_Length)] : TF_Prev_High_Time[1]
+        TF_High_Present := true
+
+    if not na(TF_SL)
+        if TF_SL >= TF_Prev_Low
+            HL := true
+        else
+            LL := true
+        TF_Prev_Low := TF_SL
+        TF_Prev_Low_Time := TF_Prev_Low != TF_Prev_Low[1] ? time[bosMTFOffset(ChartTF, TF_Period, TF_Multip, Swing_Length)] : TF_Prev_Low_Time[1]
+        TF_Low_Present := true
+
+    if TF_High_Close_Price > TF_Prev_High and TF_High_Present
+        High_Broken := true
+        TF_High_Present := false
+        End_High_Time := time
+
+    if TF_Low_Close_Price < TF_Prev_Low and TF_Low_Present
+        Low_Broken := true
+        TF_Low_Present := false
+        End_Low_Time := time
+
+    tfLabel = bosTFDisplay(ChartTF, TF_Period, TF_Multip)
+    txtSz   = bosTextSize(TF_Text_Size)
+    lnSty   = bosLineStyle(Line_Type)
+
+    if HH and Display_TF and Display_MS and not i_bosHideMS
+        label.new(TF_Prev_High_Time, TF_Prev_High, "HH \n" + tfLabel,
+             xloc = xloc.bar_time, color = Transparent_Color, style = label.style_label_down,
+             textcolor = Bul_Ms_Col, size = txtSz)
+    if HL and Display_TF and Display_MS and not i_bosHideMS
+        label.new(TF_Prev_Low_Time, TF_Prev_Low, "HL \n" + tfLabel,
+             xloc = xloc.bar_time, color = Transparent_Color, style = label.style_label_up,
+             textcolor = Bul_Ms_Col, size = txtSz)
+    if LH and Display_TF and Display_MS and not i_bosHideMS
+        label.new(TF_Prev_High_Time, TF_Prev_High, "LH \n" + tfLabel,
+             xloc = xloc.bar_time, color = Transparent_Color, style = label.style_label_down,
+             textcolor = Bear_Ms_Col, size = txtSz)
+    if LL and Display_TF and Display_MS and not i_bosHideMS
+        label.new(TF_Prev_Low_Time, TF_Prev_Low, "LL \n" + tfLabel,
+             xloc = xloc.bar_time, color = Transparent_Color, style = label.style_label_up,
+             textcolor = Bear_Ms_Col, size = txtSz)
+
+    High_Count := ta.barssince(HH or LH) + bosMTFOffset(ChartTF, TF_Period, TF_Multip, Swing_Length)
+    Low_Count  := ta.barssince(HL or LL) + bosMTFOffset(ChartTF, TF_Period, TF_Multip, Swing_Length)
+
+    High_Count_Fn = High_Count
+    Low_Count_Fn  = Low_Count
+
+    canShow = bosHTFControl(ChartTF, TF_Period, TF_Multip)
+
+    if High_Broken and Display_TF and not i_bosHideBreaks and canShow
+        if Prev_Breakout_Type == 1 and Use_Bos_Plot
+            line.new(time[High_Count_Fn], TF_Prev_High, End_High_Time, TF_Prev_High,
+                 xloc = xloc.bar_time, color = Bul_Bos_Col, style = lnSty, width = Line_Width)
+            label.new(time[High_Count_Fn / 2], TF_Prev_High,
+                 "BOS \n" + tfLabel, xloc = xloc.bar_time, color = Transparent_Color,
+                 style = label.style_label_down, textcolor = Bul_Bos_Col, size = txtSz)
+        else if Prev_Breakout_Type == -1 and Use_MSS_Plot
+            line.new(time[High_Count_Fn], TF_Prev_High, End_High_Time, TF_Prev_High,
+                 xloc = xloc.bar_time, color = Bul_Bos_Col, style = lnSty, width = Line_Width)
+            label.new(time[High_Count_Fn / 2], TF_Prev_High,
+                 "MSS \n" + tfLabel, xloc = xloc.bar_time, color = Transparent_Color,
+                 style = label.style_label_down, textcolor = Bul_Bos_Col, size = txtSz)
+
+        if Prev_Breakout_Type == -1 and Use_MSS_Alert
+            alert("New bullish MSS formed on " + tfLabel, alert.freq_once_per_bar_close)
+        else if Prev_Breakout_Type == 1 and Use_BOS_Alert
+            alert("New bullish BOS formed on " + tfLabel, alert.freq_once_per_bar_close)
+
+    if High_Broken
+        Prev_Breakout_Type := 1
+
+    if Low_Broken and Display_TF and not i_bosHideBreaks and canShow
+        if Prev_Breakout_Type == -1 and Use_Bos_Plot
+            line.new(time[Low_Count_Fn], TF_Prev_Low, End_Low_Time, TF_Prev_Low,
+                 xloc = xloc.bar_time, color = Bear_Bos_Col, style = lnSty, width = Line_Width)
+            label.new(time[Low_Count_Fn / 2], TF_Prev_Low,
+                 "BOS \n" + tfLabel, xloc = xloc.bar_time, color = Transparent_Color,
+                 textcolor = Bear_Bos_Col, style = label.style_label_up, size = txtSz)
+        else if Prev_Breakout_Type == 1 and Use_MSS_Plot
+            line.new(time[Low_Count_Fn], TF_Prev_Low, End_Low_Time, TF_Prev_Low,
+                 xloc = xloc.bar_time, color = Bear_Bos_Col, style = lnSty, width = Line_Width)
+            label.new(time[Low_Count_Fn / 2], TF_Prev_Low,
+                 "MSS \n" + tfLabel, xloc = xloc.bar_time, color = Transparent_Color,
+                 textcolor = Bear_Bos_Col, style = label.style_label_up, size = txtSz)
+
+        if Prev_Breakout_Type == 1 and Use_MSS_Alert
+            alert("New bearish MSS formed on " + tfLabel, alert.freq_once_per_bar_close)
+        else if Prev_Breakout_Type == -1 and Use_BOS_Alert
+            alert("New bearish BOS formed on " + tfLabel, alert.freq_once_per_bar_close)
+
+    if Low_Broken
+        Prev_Breakout_Type := -1
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BOS/MSS — Call for each TF
+// ─────────────────────────────────────────────────────────────────────────────
+
+Market_Structure(bos1_SH, bos1_SL, i_b1_Swing, i_b1_Chart, i_b1_Period, i_b1_Mult,
+     i_b1_LnType, i_b1_LnWidth, i_b1_ShowTF, i_b1_ShowMS, i_b1_BulCol, i_b1_BearCol,
+     i_b1_BulMS, i_b1_BearMS, i_b1_TxtSz, i_b1_HL, i_b1_AlBOS, i_b1_AlMSS,
+     i_b1_BOS, i_b1_MSS)
+Market_Structure(bos2_SH, bos2_SL, i_b2_Swing, i_b2_Chart, i_b2_Period, i_b2_Mult,
+     i_b2_LnType, i_b2_LnWidth, i_b2_ShowTF, i_b2_ShowMS, i_b2_BulCol, i_b2_BearCol,
+     i_b2_BulMS, i_b2_BearMS, i_b2_TxtSz, i_b2_HL, i_b2_AlBOS, i_b2_AlMSS,
+     i_b2_BOS, i_b2_MSS)
+Market_Structure(bos3_SH, bos3_SL, i_b3_Swing, i_b3_Chart, i_b3_Period, i_b3_Mult,
+     i_b3_LnType, i_b3_LnWidth, i_b3_ShowTF, i_b3_ShowMS, i_b3_BulCol, i_b3_BearCol,
+     i_b3_BulMS, i_b3_BearMS, i_b3_TxtSz, i_b3_HL, i_b3_AlBOS, i_b3_AlMSS,
+     i_b3_BOS, i_b3_MSS)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Status Panel
+// ─────────────────────────────────────────────────────────────────────────────
+
+// --- Helper: PB status text ---
+pbStatusTxt(int _trend, bool _active, bool _enabled, string _grade, string _breakdown) =>
+    not _enabled ? "– ปิด" : _trend == 0 ? "⚪ Sideway" : _active ? "🔵 PB " + _grade + " (" + _breakdown + ")" : "– รอ PB"
+
+pbStatusCol(int _trend, bool _active, bool _enabled, string _grade) =>
+    not _enabled ? color.gray : _trend == 0 ? color.gray : not _active ? color.gray :
+         _grade == "A" ? color.green : _grade == "B" ? color.lime : _grade == "C" ? color.yellow : color.gray
+
+trendStatusTxt(int _trend, float _spread) =>
+    _sTxt = str.tostring(_spread, "#.##") + "%"
+    _trend == 1 ? "🟢 Bull (" + _sTxt + ")" : _trend == -1 ? "🔴 Bear (" + _sTxt + ")" : "⚪ Sideway (" + _sTxt + ")"
+
+trendStatusCol(int _trend) =>
+    _trend == 1 ? color.green : _trend == -1 ? color.red : color.gray
+
+ovsTrendTxt(int _t) =>
+    _t == 1 ? "🟢 UP" : _t == -1 ? "🔴 DN" : _t == 2 ? "🟡 ⚠HL" : _t == -2 ? "🟡 ⚠LH" : "⚪ –"
+
+ovsTrendCol(int _t) =>
+    _t == 1 ? color.green : _t == -1 ? color.red : (_t == 2 or _t == -2) ? color.yellow : color.gray
+
+if barstate.islast
+    var table statusTbl = table.new(position.bottom_right, 3, 9,
+         bgcolor = color.new(#1E1E1E, 0), border_color = color.new(#333333, 0), border_width = 1,
+         frame_color = color.new(#555555, 0), frame_width = 2)
+
+    hSz = size.small
+    vSz = size.small
+
+    table.cell(statusTbl, 0, 0, "Chart TF", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
+    table.cell(statusTbl, 1, 0, mainTFTag, text_color = color.white, text_size = vSz, text_halign = text.align_left)
+
+    trendTxt = trend == 1 ? "🟢 UP" : trend == -1 ? "🔴 DN" : trend == 2 ? "🟡 ⚠HL" : trend == -2 ? "🟡 ⚠LH" : "⚪ –"
+    trendCol = trend == 1 ? color.green : trend == -1 ? color.red : trend == 2 or trend == -2 ? color.yellow : color.gray
+    table.cell(statusTbl, 0, 1, "เทรน", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
+    table.cell(statusTbl, 1, 1, trendTxt, text_color = trendCol, text_size = vSz, text_halign = text.align_left)
+
+    smTxt = smState == SM_WAIT_OVS ? "🔻 OVS" : "🔺 OVB"
+    smCol = smState == SM_WAIT_OVS ? color.aqua : color.orange
+    table.cell(statusTbl, 0, 2, "Stoch", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
+    table.cell(statusTbl, 1, 2, smTxt, text_color = smCol, text_size = vSz, text_halign = text.align_left)
+
+    emaTxt = emaFast > emaSlow ? "🟢 บวก" : "🔴 ลบ"
+    emaCol = emaFast > emaSlow ? color.green : color.red
+    table.cell(statusTbl, 0, 3, "EMA", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
+    table.cell(statusTbl, 1, 3, emaTxt, text_color = emaCol, text_size = vSz, text_halign = text.align_left)
+
+    table.cell(statusTbl, 0, 4, "", text_color = color.gray, text_size = hSz)
+    table.cell(statusTbl, 1, 4, "EMA Trend", text_color = color.gray, text_size = hSz, text_halign = text.align_left)
+    table.cell(statusTbl, 2, 4, "H1 PB / M15 Mom", text_color = color.gray, text_size = hSz, text_halign = text.align_left)
+
+    _h1PbTxt = pbStatusTxt(h1Trend, h1PbActive, i_pbH1, h1PbGrade, h1PbBreakdown)
+    _h1PbCol = pbStatusCol(h1Trend, h1PbActive, i_pbH1, h1PbGrade)
+
+    _m15MomTxt = m15Mom ==  2 ? "🟢🟢 Super Bull" :
+                 m15Mom == -2 ? "🔴🔴 Super Bear" :
+                 m15Mom ==  1 ? "🟢 Bull" :
+                 m15Mom == -1 ? "🔴 Bear" : "⚪ –"
+    _m15MomCol = m15Mom ==  2 ? superBullClr :
+                 m15Mom == -2 ? superBearClr :
+                 m15Mom ==  1 ? aboveAvgBullClr :
+                 m15Mom == -1 ? aboveAvgBearClr : color.gray
+
+    table.cell(statusTbl, 0, 5, "H1", text_color = color.white, text_size = hSz, text_halign = text.align_right)
+    table.cell(statusTbl, 1, 5, trendStatusTxt(h1Trend, h1SpreadPct), text_color = trendStatusCol(h1Trend), text_size = vSz, text_halign = text.align_left)
+    table.cell(statusTbl, 2, 5, _h1PbTxt, text_color = _h1PbCol, text_size = vSz, text_halign = text.align_left)
+
+    table.cell(statusTbl, 0, 6, "M15", text_color = color.white, text_size = hSz, text_halign = text.align_right)
+    table.cell(statusTbl, 1, 6, ovsTrendTxt(m15OvsTrend), text_color = ovsTrendCol(m15OvsTrend), text_size = vSz, text_halign = text.align_left)
+    table.cell(statusTbl, 2, 6, _m15MomTxt, text_color = _m15MomCol, text_size = vSz, text_halign = text.align_left)
+
+    table.cell(statusTbl, 0, 7, "M5", text_color = color.white, text_size = hSz, text_halign = text.align_right)
+    table.cell(statusTbl, 1, 7, ovsTrendTxt(m5OvsTrend), text_color = ovsTrendCol(m5OvsTrend), text_size = vSz, text_halign = text.align_left)
+    table.cell(statusTbl, 2, 7, "", text_color = color.gray, text_size = vSz, text_halign = text.align_left)
+
+    _b1TF = i_b1_Chart ? mainTFTag : bosTFDisplay(false, i_b1_Period, i_b1_Mult)
+    _b2TF = i_b2_Chart ? mainTFTag : bosTFDisplay(false, i_b2_Period, i_b2_Mult)
+    _b3TF = i_b3_Chart ? mainTFTag : bosTFDisplay(false, i_b3_Period, i_b3_Mult)
+    _bosTxt = _b1TF + " | " + _b2TF + " | " + _b3TF
+    table.cell(statusTbl, 0, 8, "BOS/MSS", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
+    table.cell(statusTbl, 1, 8, _bosTxt, text_color = color.white, text_size = vSz, text_halign = text.align_left)
+    table.cell(statusTbl, 2, 8, i_bosHideBreaks ? "ซ่อน" : "แสดง", text_color = i_bosHideBreaks ? color.gray : color.teal, text_size = vSz, text_halign = text.align_left)
+
