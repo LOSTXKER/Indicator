@@ -9,66 +9,56 @@ indicator("Auto Fibo Stoch", overlay = true, max_lines_count = 500, max_labels_c
 // Inputs
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── 🎯 Fibo เป้า (Target) ──────────────────────────────────────────────────
+grpTarget  = "🎯 Fibo เป้า (Target)"
+i_dayTarget  = input.bool(false, "Day",  inline = "tDay", group = grpTarget)
+i_dayPending = input.bool(true,  "Pending", inline = "tDay", group = grpTarget)
+i_h4Target   = input.bool(false, "H4",   inline = "tH4",  group = grpTarget)
+i_h4Pending  = input.bool(true,  "Pending", inline = "tH4",  group = grpTarget)
+i_h1Target   = input.bool(false, "H1",   inline = "tH1",  group = grpTarget)
+i_h1Pending  = input.bool(true,  "Pending", inline = "tH1",  group = grpTarget)
+i_m15Target  = input.bool(true,  "M15",  inline = "tM15", group = grpTarget)
+i_m15Pending = input.bool(true,  "Pending", inline = "tM15", group = grpTarget)
+i_m5Target   = input.bool(false, "M5",   inline = "tM5",  group = grpTarget)
+i_m5Pending  = input.bool(true,  "Pending", inline = "tM5",  group = grpTarget)
+i_m1Target   = input.bool(false, "M1",   inline = "tM1",  group = grpTarget)
+i_m1Pending  = input.bool(true,  "Pending", inline = "tM1",  group = grpTarget)
+i_showHK     = input.bool(true, "แสดง HK",  inline = "tType", group = grpTarget)
+i_showSB     = input.bool(true, "แสดง SB",  inline = "tType", group = grpTarget)
+i_maxSets    = input.int(5, "ชุดสูงสุด (ต่อทิศทาง)", minval = 1, maxval = 5, group = grpTarget)
+
+// ── 🔰 Fibo จุดเข้า (Entry) ───────────────────────────────────────────────
+grpEntry   = "🔰 Fibo จุดเข้า (Entry)"
+i_dayEntry   = input.bool(false, "Day",  group = grpEntry)
+i_h4Entry    = input.bool(false, "H4",   group = grpEntry)
+i_h1Entry    = input.bool(false, "H1",   group = grpEntry)
+i_m15Entry   = input.bool(true,  "M15",  group = grpEntry)
+i_m5Entry    = input.bool(false, "M5",   group = grpEntry)
+i_m1Entry    = input.bool(false, "M1",   group = grpEntry)
+i_maxSupSets = input.int(5, "ชุดสูงสุด (ต่อทิศทาง)", minval = 1, maxval = 5, group = grpEntry)
+
+// ── ⚙️ Stochastic ─────────────────────────────────────────────────────────
 grpCore    = "⚙️ Stochastic"
 i_kPeriod  = input.int(9,   "K Period",  minval = 1,  group = grpCore)
 i_slowing  = input.int(3,   "Slowing",   minval = 1,  group = grpCore)
 i_ovsLevel = input.int(20,  "OVS Level", minval = 1,  maxval = 49, group = grpCore)
 i_ovbLevel = input.int(80,  "OVB Level", minval = 51, maxval = 99, group = grpCore)
 
-grpFibo    = "📐 Fibo ทั่วไป"
-i_showHK     = input.bool(true, "แสดง Hak Kho (HK)",                group = grpFibo)
-i_showSB     = input.bool(true, "แสดง Somboon (SB)",                group = grpFibo)
-i_maxSets    = input.int(2,   "Target ชุดสูงสุด (ต่อทิศทาง)", minval = 1, maxval = 5, group = grpFibo)
-i_maxSupSets = input.int(2,   "Entry ชุดสูงสุด (ต่อทิศทาง)",  minval = 1, maxval = 5, group = grpFibo)
-
-grpDay = "📊 Day"
-i_dayTarget  = input.bool(false, "Day Target",  group = grpDay)
-i_dayEntry   = input.bool(false, "Day Entry",   group = grpDay)
-i_dayPending = input.bool(true,  "Day Target Pending", group = grpDay)
-i_dayCol     = input.color(color.new(#AB47BC, 10), "สี Day", group = grpDay)
-
-grpH4 = "📊 H4"
-i_h4Target   = input.bool(false, "H4 Target",  group = grpH4)
-i_h4Entry    = input.bool(false, "H4 Entry",   group = grpH4)
-i_h4Pending  = input.bool(true,  "H4 Target Pending", group = grpH4)
-i_h4Col      = input.color(color.new(#26C6DA, 10), "สี H4", group = grpH4)
-
-grpH1 = "📊 H1"
-i_h1Target   = input.bool(false, "H1 Target",  group = grpH1)
-i_h1Entry    = input.bool(false, "H1 Entry",   group = grpH1)
-i_h1Pending  = input.bool(true,  "H1 Target Pending", group = grpH1)
-i_h1Col      = input.color(color.new(#66BB6A, 10), "สี H1", group = grpH1)
-
-grpM15 = "📊 M15"
-i_m15Target  = input.bool(true,  "M15 Target",  group = grpM15)
-i_m15Entry   = input.bool(true,  "M15 Entry",   group = grpM15)
-i_m15Pending = input.bool(true,  "M15 Target Pending", group = grpM15)
-i_m15Col     = input.color(color.new(#FFA726, 10), "สี M15", group = grpM15)
-
-grpM5 = "📊 M5"
-i_m5Target   = input.bool(false, "M5 Target",  group = grpM5)
-i_m5Entry    = input.bool(false, "M5 Entry",   group = grpM5)
-i_m5Pending  = input.bool(true,  "M5 Target Pending", group = grpM5)
-i_m5Col      = input.color(color.new(#E040FB, 10), "สี M5", group = grpM5)
-
-grpM1 = "📊 M1"
-i_m1Target   = input.bool(false, "M1 Target",  group = grpM1)
-i_m1Entry    = input.bool(false, "M1 Entry",   group = grpM1)
-i_m1Pending  = input.bool(true,  "M1 Target Pending", group = grpM1)
-i_m1Col      = input.color(color.new(#80CBC4, 10), "สี M1", group = grpM1)
-
-grpRsiCut    = "📍 Entry — RSI Cut"
+// ── 📍 RSI Cut ────────────────────────────────────────────────────────────
+grpRsiCut    = "📍 RSI Cut"
 i_rsiCutEnabled = input.bool(true,  "เปิดใช้ RSI Cut",  group = grpRsiCut)
 i_rsiPeriod     = input.int(14,     "RSI Period",       minval = 1, group = grpRsiCut)
 i_rsiOvsLevel   = input.int(30,     "RSI OVS Level",    minval = 1,  maxval = 49, group = grpRsiCut)
 i_rsiOvbLevel   = input.int(70,     "RSI OVB Level",    minval = 51, maxval = 99, group = grpRsiCut)
 
-grpEMA     = "📍 Entry — EMA"
+// ── 📍 EMA ────────────────────────────────────────────────────────────────
+grpEMA     = "📍 EMA"
 i_emaFast  = input.int(14, "Fast EMA",  minval = 1, group = grpEMA)
 i_emaSlow  = input.int(60, "Slow EMA",  minval = 1, group = grpEMA)
 i_showEMA  = input.bool(true, "แสดงเส้น EMA", group = grpEMA)
 i_showEMAbg = input.bool(true, "แสดงพื้นหลัง EMA Cross", group = grpEMA)
 
+// ── 📊 แสดงผล ─────────────────────────────────────────────────────────────
 grpDisplay = "📊 แสดงผล"
 i_showMarkers = input.bool(true,  "แสดงจุด OVS/OVB",      group = grpDisplay)
 i_maxMarkers  = input.int(30, "จำนวนจุดสูงสุด (คู่)",    minval = 5, maxval = 100, group = grpDisplay)
@@ -77,9 +67,16 @@ i_showZones   = input.bool(false, "แสดงพื้นหลังโซน
 i_showPattern = input.bool(false, "แสดงเส้น Flag Pattern", group = grpDisplay)
 i_pivotLen    = input.int(2, "Pivot Length (Flag)",       minval = 1, maxval = 5, group = grpDisplay)
 
+// ── 🎨 สี ─────────────────────────────────────────────────────────────────
 grpColors  = "🎨 สี"
-i_colPending  = input.color(color.new(#EF5350, 10), "สี Pending (รอยืนยัน)",    group = grpColors)
-i_colHL       = input.color(color.new(#00E676,  0), "สีเส้น Highlight (SB/HK)", group = grpColors)
+i_dayCol     = input.color(color.new(#AB47BC, 10), "Day",  inline = "cTF1", group = grpColors)
+i_h4Col      = input.color(color.new(#26C6DA, 10), "H4",   inline = "cTF1", group = grpColors)
+i_h1Col      = input.color(color.new(#66BB6A, 10), "H1",   inline = "cTF1", group = grpColors)
+i_m15Col     = input.color(color.new(#FFA726, 10), "M15",  inline = "cTF2", group = grpColors)
+i_m5Col      = input.color(color.new(#E040FB, 10), "M5",   inline = "cTF2", group = grpColors)
+i_m1Col      = input.color(color.new(#80CBC4, 10), "M1",   inline = "cTF2", group = grpColors)
+i_colPending  = input.color(color.new(#EF5350, 10), "Pending",   inline = "cSpec", group = grpColors)
+i_colHL       = input.color(color.new(#00E676,  0), "Highlight", inline = "cSpec", group = grpColors)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
