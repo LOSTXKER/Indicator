@@ -3,7 +3,7 @@
 // © OVS/OVB Base Indicator
 
 //@version=6
-indicator("OVS/OVB Base", overlay = true, max_labels_count = 500, max_lines_count = 500, max_bars_back = 5000)
+indicator("OVS/OVB Base", overlay = true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 200, max_bars_back = 5000)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Inputs
@@ -30,16 +30,41 @@ i_showEMAbg = input.bool(true, "แสดงพื้นหลัง EMA Cross",
 grpPB      = "🎯 Pullback Strategy"
 i_adxLen        = input.int(14, "ADX Length", minval = 5, maxval = 50, group = grpPB)
 i_adxThresh     = input.int(20, "ADX Sideway Threshold", minval = 10, maxval = 40, group = grpPB,
-     tooltip = "ADX ต่ำกว่านี้ = Sideway ไม่มีเทรน")
+     tooltip = "ADX ต่ำกว่านี้ = Sideway ไม่มีเทรน (แนะนำ 20-25)")
 i_bbLen         = input.int(20, "BB Length", minval = 5, maxval = 50, group = grpPB)
 i_bbMult        = input.float(2.0, "BB Multiplier", minval = 1.0, maxval = 4.0, step = 0.1, group = grpPB)
-i_pbBars        = input.int(2, "PB Candles", minval = 1, maxval = 5, group = grpPB,
-     tooltip = "จำนวนแท่งย่อติดต่อกันก่อนกลับตัว")
+i_pbBars        = input.int(1, "PB Candles", minval = 1, maxval = 5, group = grpPB,
+     tooltip = "จำนวนแท่งย่อติดต่อกันก่อนกลับตัว (1 = จับ PB ตื้นได้)")
 i_pbSwingLen    = input.int(6, "Swing Lookback", minval = 3, maxval = 20, group = grpPB,
      tooltip = "ช่วงหา Swing High/Low")
 i_pbH1          = input.bool(true, "H1 Pullback", group = grpPB)
-i_showPullback  = input.bool(true, "แสดง Pullback markers", group = grpPB)
+i_showPbDots    = input.bool(true, "แสดงจุด PB (Phase 2)", group = grpPB,
+     tooltip = "จุด x บอกว่ามีแท่งกลับตัวในโซนสำคัญแล้ว")
+i_showPbZone    = input.bool(true, "แสดง PB Fib Zone", group = grpPB,
+     tooltip = "เส้น Fib + เปลี่ยนสีแท่งเมื่อราคาอยู่ในโซน pullback")
+i_showSweep     = input.bool(true, "แสดง Liquidity Sweep", group = grpPB,
+     tooltip = "จุดที่ราคา wick ทะลุ swing แล้วกลับตัว (stop hunt)")
+i_showOB        = input.bool(true, "แสดง Order Block", group = grpPB,
+     tooltip = "แท่งสุดท้ายก่อน impulse move — จุดที่สถาบันวาง order")
 i_showH1BB      = input.bool(false, "แสดง H1 Bollinger Bands", group = grpPB)
+
+grpFVG = "📦 FVG (Fair Value Gap)"
+i_showFVG      = input.bool(true, "แสดง H1 FVG", group = grpFVG)
+i_fvgMaxBoxes  = input.int(10, "จำนวน FVG สูงสุด", minval = 3, maxval = 50, group = grpFVG)
+
+grpSess = "⏰ Session / Kill Zone (ICT)"
+i_sessAsian    = input.bool(true, "Asian Kill Zone", group = grpSess,
+     tooltip = "19:00–22:00 NY time — range formation")
+i_sessLondon   = input.bool(true, "London Kill Zone", group = grpSess,
+     tooltip = "02:00–05:00 NY time — daily directional bias")
+i_sessNY       = input.bool(true, "New York Kill Zone", group = grpSess,
+     tooltip = "07:00–10:00 NY time — high volatility")
+i_sessLdnClose = input.bool(true, "London Close Kill Zone", group = grpSess,
+     tooltip = "10:00–12:00 NY time — reversal/continuation")
+i_showSessBg   = input.bool(true, "แสดงพื้นหลัง Session", group = grpSess)
+
+grpLevels = "📏 Key Levels"
+i_showPDHL = input.bool(true, "แสดง Previous Day High/Low", group = grpLevels)
 
 grpMom = "📈 Momentum Candle"
 i_momAvgLen    = input.int(15, "Avg Body Period", minval = 2, group = grpMom)
@@ -79,29 +104,7 @@ rsiInOvb = rsiRaw > i_rsiOvbLevel
 // TF Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-formatTF(string tf) =>
-    result = switch tf
-        "1"    => "M1"
-        "3"    => "M3"
-        "5"    => "M5"
-        "15"   => "M15"
-        "30"   => "M30"
-        "45"   => "M45"
-        "60"   => "H1"
-        "120"  => "H2"
-        "180"  => "H3"
-        "240"  => "H4"
-        "D"    => "Day"
-        "1D"   => "Day"
-        "W"    => "Week"
-        "1W"   => "Week"
-        "M"    => "Month"
-        "1M"   => "Month"
-        => tf
-    result
-
-mainTFTag = formatTF(timeframe.period)
-isM15     = timeframe.period == "15"
+isM15 = timeframe.period == "15"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Main SM State Variables (chart TF)
@@ -403,97 +406,34 @@ bodyRange = math.abs(close - open)
 avgBody   = ta.sma(bodyRange, i_momAvgLen)
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pre-fetch: OVS/OVB Trend SM (runs natively on target TF inside request.security)
-// ─────────────────────────────────────────────────────────────────────────────
-
-var int   _tfSmSt      = SM_WAIT_OVS
-var float _tfSmOvsLow  = na
-var float _tfSmOvbHigh = na
-var float _tfPrevOvsLo = na
-var float _tfPrevOvbHi = na
-var int   _tfOvsTrend  = 0
-
-_tfInOvs = kVal < i_ovsLevel
-_tfInOvb = kVal > i_ovbLevel
-
-if _tfSmSt == SM_WAIT_OVS
-    if na(_tfSmOvsLow) or low < _tfSmOvsLow
-        _tfSmOvsLow  := low
-        _tfSmOvbHigh := high
-    else
-        if na(_tfSmOvbHigh) or high > _tfSmOvbHigh
-            _tfSmOvbHigh := high
-    if _tfInOvb and not na(_tfSmOvsLow)
-        _sl = _tfSmOvsLow
-        if not na(_tfPrevOvsLo)
-            _hl = _sl > _tfPrevOvsLo
-            _ll = _sl < _tfPrevOvsLo
-            if _tfOvsTrend == 0 and _hl
-                _tfOvsTrend := 2
-            else if _tfOvsTrend == 0 and _ll
-                _tfOvsTrend := -1
-            else if _tfOvsTrend == -1 and _hl
-                _tfOvsTrend := 2
-            else if _tfOvsTrend == 1 and _ll
-                _tfOvsTrend := -2
-            else if _tfOvsTrend == -2 and _ll
-                _tfOvsTrend := -1
-            else if _tfOvsTrend == -2 and _hl
-                _tfOvsTrend := 1
-        _tfPrevOvsLo := _sl
-        _tfSmSt      := SM_WAIT_OVB
-        _tfSmOvsLow  := na
-else if _tfSmSt == SM_WAIT_OVB
-    if na(_tfSmOvbHigh) or high > _tfSmOvbHigh
-        _tfSmOvbHigh := high
-        _tfSmOvsLow  := low
-    else
-        if na(_tfSmOvsLow) or low < _tfSmOvsLow
-            _tfSmOvsLow := low
-    if _tfInOvs and not na(_tfSmOvbHigh)
-        _sh = _tfSmOvbHigh
-        if not na(_tfPrevOvbHi)
-            _hh = _sh > _tfPrevOvbHi
-            _lh = _sh < _tfPrevOvbHi
-            if _tfOvsTrend == 1 and _lh
-                _tfOvsTrend := -2
-            else if _tfOvsTrend == -1 and _hh
-                _tfOvsTrend := 2
-            else if _tfOvsTrend == 2 and _hh
-                _tfOvsTrend := 1
-            else if _tfOvsTrend == 2 and _lh
-                _tfOvsTrend := -1
-            else if _tfOvsTrend == -2 and _lh
-                _tfOvsTrend := -1
-            else if _tfOvsTrend == -2 and _hh
-                _tfOvsTrend := 1
-        _tfPrevOvbHi := _sh
-        _tfSmSt      := SM_WAIT_OVS
-        _tfSmOvbHigh := na
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Multi-TF Data Fetching
 // ─────────────────────────────────────────────────────────────────────────────
 
-h1SwingLo = ta.lowest(low, i_pbSwingLen)
-h1SwingHi = ta.highest(high, i_pbSwingLen)
 h1PivHi   = ta.pivothigh(high, i_pbSwingLen, i_pbSwingLen)
 h1PivLo   = ta.pivotlow(low, i_pbSwingLen, i_pbSwingLen)
 prevC1 = close[1]
 prevC2 = close[2]
 prevC3 = close[3]
+_prevH2 = high[2]
+_prevL2 = low[2]
+_prevO2 = open[2]
+_prevBody1 = math.abs(close[1] - open[1])
+_h1AvgBody = ta.sma(math.abs(close - open), 14)
+_atrVal = ta.atr(14)
 
 [_, _, _adxVal] = ta.dmi(i_adxLen, i_adxLen)
-_adxPrev = _adxVal[1]
 [_bbMid, _bbUp, _bbLo] = ta.bb(close, i_bbLen, i_bbMult)
-_bbWidth = _bbMid > 0 ? (_bbUp - _bbLo) / _bbMid * 100 : 0.0
-_bbWPrev = _bbWidth[1]
 
-[h1C, h1H, h1L, h1EmaF, h1EmaS, h1T, h1SwL, h1SwH, h1PivH, h1PivL, h1PrevC1, h1PrevC2, h1PrevC3, h1Adx, h1BbW, h1BbUp, h1BbLo, h1BbMid, h1AdxPrev, h1BbWPrev] = request.security(syminfo.tickerid, "60",
-     [close, high, low, emaFast, emaSlow, time, h1SwingLo, h1SwingHi, h1PivHi, h1PivLo, prevC1, prevC2, prevC3, _adxVal, _bbWidth, _bbUp, _bbLo, _bbMid, _adxPrev, _bbWPrev])
-[m15O, m15C, m15Body, m15AvgB, m15OvsTrend] = request.security(syminfo.tickerid, "15",
-     [open, close, bodyRange, avgBody, _tfOvsTrend])
-m5OvsTrend = request.security(syminfo.tickerid, "5", _tfOvsTrend)
+[h4EmaF, h4EmaS, h4Adx] = request.security(syminfo.tickerid, "240",
+     [emaFast, emaSlow, _adxVal])
+
+[pdH, pdL] = request.security(syminfo.tickerid, "D", [high[1], low[1]])
+
+[h1C, h1H, h1L, h1EmaF, h1EmaS, h1T, h1PivH, h1PivL, h1PrevC1, h1PrevC2, h1PrevC3, h1PrevH2, h1PrevL2, h1Atr, h1Adx, h1BbUp, h1BbLo, h1BbMid, h1PrevO2, h1PrevBody1, h1AvgBody] = request.security(syminfo.tickerid, "60",
+     [close, high, low, emaFast, emaSlow, time, h1PivHi, h1PivLo, prevC1, prevC2, prevC3, _prevH2, _prevL2, _atrVal, _adxVal, _bbUp, _bbLo, _bbMid, _prevO2, _prevBody1, _h1AvgBody])
+
+[m15O, m15C, m15Body, m15AvgB] = request.security(syminfo.tickerid, "15",
+     [open, close, bodyRange, avgBody])
 
 // --- H1 Bar change detection ---
 var int prevH1T = na
@@ -501,34 +441,89 @@ h1BarNew = not na(h1T) and (na(prevH1T) or h1T != prevH1T)
 if not na(h1T)
     prevH1T := h1T
 
-// --- H1 Real Swing tracking (pivot-based) ---
+// --- H1 Real Swing tracking (pivot-based, impulse leg pairing) ---
 var float h1LastSwHi    = na
 var float h1LastSwLo    = na
-var int   h1LastSwHiBar = na
-var int   h1LastSwLoBar = na
+var float h1ImpHi       = na
+var float h1ImpLo       = na
+var int   h1LastSwDir   = 0
+h1SwMinRange = not na(h1Atr) ? h1Atr * 1.0 : 0.0
 if h1BarNew and not na(h1PivH)
-    h1LastSwHi    := h1PivH
-    h1LastSwHiBar := bar_index - i_pbSwingLen
-    if i_showPullback and timeframe.period == "60"
-        label.new(bar_index - i_pbSwingLen, h1PivH, "",
-             style = label.style_circle, color = color.new(color.white, 60),
-             size = size.auto, yloc = yloc.abovebar)
+    _swRange = not na(h1LastSwLo) ? h1PivH - h1LastSwLo : h1SwMinRange + 1
+    if _swRange >= h1SwMinRange
+        h1LastSwHi := h1PivH
+        if h1LastSwDir == -1 or na(h1ImpLo)
+            h1ImpLo := h1LastSwLo
+        h1ImpHi     := h1PivH
+        h1LastSwDir := 1
+        if i_showPbDots and timeframe.period == "60"
+            label.new(bar_index - i_pbSwingLen, h1PivH, "",
+                 style = label.style_circle, color = color.new(color.white, 60),
+                 size = size.auto, yloc = yloc.abovebar)
 if h1BarNew and not na(h1PivL)
-    h1LastSwLo    := h1PivL
-    h1LastSwLoBar := bar_index - i_pbSwingLen
-    if i_showPullback and timeframe.period == "60"
-        label.new(bar_index - i_pbSwingLen, h1PivL, "",
-             style = label.style_circle, color = color.new(color.white, 60),
-             size = size.auto, yloc = yloc.belowbar)
+    _swRange = not na(h1LastSwHi) ? h1LastSwHi - h1PivL : h1SwMinRange + 1
+    if _swRange >= h1SwMinRange
+        h1LastSwLo := h1PivL
+        if h1LastSwDir == 1 or na(h1ImpHi)
+            h1ImpHi := h1LastSwHi
+        h1ImpLo     := h1PivL
+        h1LastSwDir := -1
+        if i_showPbDots and timeframe.period == "60"
+            label.new(bar_index - i_pbSwingLen, h1PivL, "",
+                 style = label.style_circle, color = color.new(color.white, 60),
+                 size = size.auto, yloc = yloc.belowbar)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H1 Liquidity Sweep (Stop Hunt / Swing Failure Pattern)
+// ─────────────────────────────────────────────────────────────────────────────
+
+h1SweepBull = h1BarNew and not na(h1L) and not na(h1C) and not na(h1LastSwLo)
+     and h1L < h1LastSwLo and h1C > h1LastSwLo
+h1SweepBear = h1BarNew and not na(h1H) and not na(h1C) and not na(h1LastSwHi)
+     and h1H > h1LastSwHi and h1C < h1LastSwHi
+
+var int h1LastSweepBar  = na
+var int h1LastSweepDir  = 0
+if h1SweepBull
+    h1LastSweepBar := bar_index
+    h1LastSweepDir := 1
+if h1SweepBear
+    h1LastSweepBar := bar_index
+    h1LastSweepDir := -1
+
+plotshape(i_showSweep and timeframe.period == "60" and h1SweepBull, style = shape.diamond,
+     size = size.tiny, color = color.new(#00BCD4, 0), location = location.belowbar, title = "Sweep Bull")
+plotshape(i_showSweep and timeframe.period == "60" and h1SweepBear, style = shape.diamond,
+     size = size.tiny, color = color.new(#E040FB, 0), location = location.abovebar, title = "Sweep Bear")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H4 Trend Detection (top-level bias)
+// ─────────────────────────────────────────────────────────────────────────────
+
+h4AdxOk = not na(h4Adx) and h4Adx >= i_adxThresh
+h4Trend = h4AdxOk ? (h4EmaF > h4EmaS ? 1 : -1) : 0
 
 // ─────────────────────────────────────────────────────────────────────────────
 // H1 Trend Detection (ADX + EMA direction)
 // ─────────────────────────────────────────────────────────────────────────────
 
-h1AdxOk      = not na(h1Adx) and h1Adx >= i_adxThresh
-h1Trend      = h1AdxOk ? (h1EmaF > h1EmaS ? 1 : -1) : 0
-h1AdxRising  = not na(h1Adx) and not na(h1AdxPrev) and h1Adx >= h1AdxPrev
-h1BbSqueeze  = not na(h1BbW) and not na(h1BbWPrev) and h1BbW < h1BbWPrev
+h1AdxOk = not na(h1Adx) and h1Adx >= i_adxThresh
+h1Trend = h1AdxOk ? (h1EmaF > h1EmaS ? 1 : -1) : 0
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Session / Kill Zone Detection
+// ─────────────────────────────────────────────────────────────────────────────
+
+_hrNY = hour(time, "America/New_York")
+_asianActive   = i_sessAsian    and _hrNY >= 19 and _hrNY < 22
+_londonActive  = i_sessLondon   and _hrNY >= 2  and _hrNY < 5
+_nyActive      = i_sessNY       and _hrNY >= 7  and _hrNY < 10
+_ldnCloseActive = i_sessLdnClose and _hrNY >= 10 and _hrNY < 12
+
+bgcolor(i_showSessBg and _asianActive    ? color.new(#9C27B0, 92) : na, title = "Asian KZ")
+bgcolor(i_showSessBg and _londonActive   ? color.new(#2196F3, 92) : na, title = "London KZ")
+bgcolor(i_showSessBg and _nyActive       ? color.new(#FF9800, 92) : na, title = "New York KZ")
+bgcolor(i_showSessBg and _ldnCloseActive ? color.new(#4CAF50, 92) : na, title = "London Close KZ")
 
 // ── H1 Bollinger Bands ──
 bbUpPlot  = i_showH1BB ? h1BbUp  : na
@@ -541,91 +536,373 @@ plot(bbMidPlot, "H1 BB Mid",   color = color.new(color.orange, 80), linewidth = 
 fill(pBBUp, pBBLo, color = color.new(color.orange, 100), title = "BB Zone")
 
 // ─────────────────────────────────────────────────────────────────────────────
-// H1 Pullback = Candle Pattern (consecutive pullback + reversal at swing)
+// Previous Day High/Low (PDH/PDL)
 // ─────────────────────────────────────────────────────────────────────────────
 
-var bool   h1PbActive    = false
-var float  h1PbLevel     = na
-var int    h1PbDir       = 0
-var label  pendingPbLbl  = na
+pPDH = plot(i_showPDHL ? pdH : na, "PDH", color = color.new(#42A5F5, 30), linewidth = 1, style = plot.style_stepline_diamond)
+pPDL = plot(i_showPDHL ? pdL : na, "PDL", color = color.new(#42A5F5, 30), linewidth = 1, style = plot.style_stepline_diamond)
 
-h1IsGreen = not na(h1C) and not na(h1PrevC1) and h1C > h1PrevC1
-h1IsRed   = not na(h1C) and not na(h1PrevC1) and h1C < h1PrevC1
-
-h1ConsDown1 = not na(h1PrevC1) and not na(h1PrevC2) and h1PrevC1 < h1PrevC2
-h1ConsDown2 = h1ConsDown1 and not na(h1PrevC3) and h1PrevC2 < h1PrevC3
-h1ConsUp1   = not na(h1PrevC1) and not na(h1PrevC2) and h1PrevC1 > h1PrevC2
-h1ConsUp2   = h1ConsUp1 and not na(h1PrevC3) and h1PrevC2 > h1PrevC3
-
-h1PbDownOk = i_pbBars >= 2 ? h1ConsDown2 : h1ConsDown1
-h1PbUpOk   = i_pbBars >= 2 ? h1ConsUp2   : h1ConsUp1
-
-h1AtSwingLo = not na(h1L) and not na(h1SwL) and (h1L <= h1SwL or low[1] <= h1SwL)
-h1AtSwingHi = not na(h1H) and not na(h1SwH) and (h1H >= h1SwH or high[1] >= h1SwH)
-
-m15TrendOk = h1Trend == 1 ? m15OvsTrend >= 0 : h1Trend == -1 ? m15OvsTrend <= 0 : true
-h1PbBull = h1Trend == 1  and h1PbDownOk and h1IsGreen and h1AtSwingLo and m15TrendOk
-h1PbBear = h1Trend == -1 and h1PbUpOk   and h1IsRed   and h1AtSwingHi and m15TrendOk
-
-fiboZoneTxt(float _depthPct) =>
-    _depthPct < 23.6 ? "< 23.6%" :
-     _depthPct < 38.2 ? "23.6–38.2%" :
-     _depthPct < 50.0 ? "38.2–50%" :
-     _depthPct < 61.8 ? "50–61.8%" :
-     _depthPct < 78.6 ? "61.8–78.6%" : "> 78.6%"
-
-drawPbLabel(int _trend, float _level, int _bar, float _depthPct) =>
-    _arrow = _trend == 1 ? "▲" : "▼"
-    _zone  = fiboZoneTxt(_depthPct)
-    _txt = "PB " + _arrow + "\nFib " + _zone + " (" + str.tostring(_depthPct, "#.#") + "%)"
-    _col = _trend == 1 ? color.new(#00C853, 10) : color.new(#D50000, 10)
-    _sty = _trend == 1 ? label.style_label_up : label.style_label_down
-    label.new(_bar, _level, _txt, style = _sty, color = _col,
-         textcolor = color.white, size = size.small)
-
-if not i_pbH1 or h1Trend == 0
-    h1PbActive := false
-    h1PbLevel  := na
-else if h1BarNew and (h1PbBull or h1PbBear)
-    h1PbActive := true
-    _lvl = h1PbBull ? h1L : h1H
-    h1PbLevel  := _lvl
-    h1PbDir    := h1PbBull ? 1 : -1
-    _range  = h1LastSwHi - h1LastSwLo
-    _depth  = _range > 0 ? (h1PbBull ? (h1LastSwHi - _lvl) / _range : (_lvl - h1LastSwLo) / _range) : 1.0
-    _depPct = _depth * 100
-    if i_showPullback and timeframe.period == "60"
-        drawPbLabel(h1Trend, h1PbLevel, bar_index, _depPct)
-
-// --- Pending PB (real-time, before H1 bar closes) ---
-if not na(pendingPbLbl)
-    label.delete(pendingPbLbl)
-    pendingPbLbl := na
-
-h1PbPendBull = not h1BarNew and h1PbBull
-h1PbPendBear = not h1BarNew and h1PbBear
-h1PbPending  = h1PbPendBull or h1PbPendBear
-
-if i_pbH1 and i_showPullback and timeframe.period == "60" and h1PbPending
-    _pLvl    = h1PbPendBull ? h1L : h1H
-    _pRange  = h1LastSwHi - h1LastSwLo
-    _pDepth  = _pRange > 0 ? (h1PbPendBull ? (h1LastSwHi - _pLvl) / _pRange : (_pLvl - h1LastSwLo) / _pRange) : 1.0
-    _pDepPct = _pDepth * 100
-    _pArrow  = h1PbPendBull ? "▲" : "▼"
-    _pZone   = fiboZoneTxt(_pDepPct)
-    _pTxt    = "⏳ PB " + _pArrow + "\nFib " + _pZone + " (" + str.tostring(_pDepPct, "#.#") + "%)"
-    _pCol    = h1PbPendBull ? color.new(#00C853, 60) : color.new(#D50000, 60)
-    _pSty    = h1PbPendBull ? label.style_label_up : label.style_label_down
-    pendingPbLbl := label.new(bar_index, _pLvl, _pTxt, style = _pSty, color = _pCol,
-         textcolor = color.new(color.white, 40), size = size.small)
+var label pdHLbl = na
+var label pdLLbl = na
+if barstate.islast and i_showPDHL
+    if not na(pdHLbl)
+        label.delete(pdHLbl)
+    if not na(pdLLbl)
+        label.delete(pdLLbl)
+    pdHLbl := label.new(bar_index + 3, pdH, "PDH", style = label.style_none, textcolor = color.new(#42A5F5, 20), size = size.small)
+    pdLLbl := label.new(bar_index + 3, pdL, "PDL", style = label.style_none, textcolor = color.new(#42A5F5, 20), size = size.small)
 
 // ─────────────────────────────────────────────────────────────────────────────
-// H1 Pullback Alert
+// H1 FVG Detection (Fair Value Gap — 3-candle imbalance)
 // ─────────────────────────────────────────────────────────────────────────────
 
-h1PbJustFired = h1BarNew and (h1PbBull or h1PbBear)
-alertcondition(h1PbJustFired and h1PbBull, title = "H1 Pullback Bull", message = '{"type":"PB","dir":"BULL","pair":"{{ticker}}","tf":"H1","price":"{{close}}","time":"{{time}}"}')
-alertcondition(h1PbJustFired and h1PbBear, title = "H1 Pullback Bear", message = '{"type":"PB","dir":"BEAR","pair":"{{ticker}}","tf":"H1","price":"{{close}}","time":"{{time}}"}')
+var array<box> fvgBoxes = array.new<box>()
+var array<float> fvgTops   = array.new<float>()
+var array<float> fvgBots   = array.new<float>()
+var array<int>   fvgDirs   = array.new<int>()
+
+h1FvgBull = not na(h1L) and not na(h1PrevH2) and h1L > h1PrevH2
+h1FvgBear = not na(h1H) and not na(h1PrevL2) and h1H < h1PrevL2
+
+if h1BarNew and i_showFVG and timeframe.period == "60"
+    if h1FvgBull
+        _top = h1L
+        _bot = h1PrevH2
+        array.push(fvgTops, _top)
+        array.push(fvgBots, _bot)
+        array.push(fvgDirs, 1)
+        _fvgBox = box.new(bar_index - 2, _top, bar_index, _bot,
+             bgcolor = color.new(#00C853, 80), border_color = color.new(#00C853, 40), border_width = 2)
+        box.set_text(_fvgBox, "FVG")
+        box.set_text_color(_fvgBox, color.new(#00C853, 30))
+        box.set_text_size(_fvgBox, size.small)
+        array.push(fvgBoxes, _fvgBox)
+    if h1FvgBear
+        _top = h1PrevL2
+        _bot = h1H
+        array.push(fvgTops, _top)
+        array.push(fvgBots, _bot)
+        array.push(fvgDirs, -1)
+        _fvgBox = box.new(bar_index - 2, _top, bar_index, _bot,
+             bgcolor = color.new(#D50000, 80), border_color = color.new(#D50000, 40), border_width = 2)
+        box.set_text(_fvgBox, "FVG")
+        box.set_text_color(_fvgBox, color.new(#D50000, 30))
+        box.set_text_size(_fvgBox, size.small)
+        array.push(fvgBoxes, _fvgBox)
+    while array.size(fvgBoxes) > i_fvgMaxBoxes
+        box.delete(array.get(fvgBoxes, 0))
+        array.remove(fvgBoxes, 0)
+        array.remove(fvgTops, 0)
+        array.remove(fvgBots, 0)
+        array.remove(fvgDirs, 0)
+
+if array.size(fvgBoxes) > 0
+    _idx = array.size(fvgBoxes) - 1
+    while _idx >= 0
+        _ft = array.get(fvgTops, _idx)
+        _fb = array.get(fvgBots, _idx)
+        _fd = array.get(fvgDirs, _idx)
+        _mitigated = h1BarNew and ((_fd == 1 and not na(h1C) and h1C < _fb) or (_fd == -1 and not na(h1C) and h1C > _ft))
+        if _mitigated
+            box.delete(array.get(fvgBoxes, _idx))
+            array.remove(fvgBoxes, _idx)
+            array.remove(fvgTops, _idx)
+            array.remove(fvgBots, _idx)
+            array.remove(fvgDirs, _idx)
+        else
+            box.set_right(array.get(fvgBoxes, _idx), bar_index + 5)
+        _idx -= 1
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H1 Order Block Detection (last opposing candle before FVG displacement)
+// ─────────────────────────────────────────────────────────────────────────────
+
+var array<box>   obBoxes = array.new<box>()
+var array<float> obTops  = array.new<float>()
+var array<float> obBots  = array.new<float>()
+var array<int>   obDirs  = array.new<int>()
+
+h1ObBull = h1FvgBull and not na(h1PrevBody1) and not na(h1AvgBody) and h1PrevBody1 > h1AvgBody * 1.5
+     and not na(h1PrevC2) and not na(h1PrevO2) and h1PrevC2 < h1PrevO2
+h1ObBear = h1FvgBear and not na(h1PrevBody1) and not na(h1AvgBody) and h1PrevBody1 > h1AvgBody * 1.5
+     and not na(h1PrevC2) and not na(h1PrevO2) and h1PrevC2 > h1PrevO2
+
+if h1BarNew and i_showOB and timeframe.period == "60"
+    if h1ObBull
+        _top = h1PrevH2
+        _bot = h1PrevL2
+        array.push(obTops, _top)
+        array.push(obBots, _bot)
+        array.push(obDirs, 1)
+        _obBox = box.new(bar_index - 2, _top, bar_index, _bot,
+             bgcolor = color.new(#00ACC1, 80), border_color = color.new(#00ACC1, 40), border_width = 2)
+        box.set_text(_obBox, "OB")
+        box.set_text_color(_obBox, color.new(#00ACC1, 20))
+        box.set_text_size(_obBox, size.small)
+        array.push(obBoxes, _obBox)
+    if h1ObBear
+        _top = h1PrevH2
+        _bot = h1PrevL2
+        array.push(obTops, _top)
+        array.push(obBots, _bot)
+        array.push(obDirs, -1)
+        _obBox = box.new(bar_index - 2, _top, bar_index, _bot,
+             bgcolor = color.new(#FF6D00, 80), border_color = color.new(#FF6D00, 40), border_width = 2)
+        box.set_text(_obBox, "OB")
+        box.set_text_color(_obBox, color.new(#FF6D00, 20))
+        box.set_text_size(_obBox, size.small)
+        array.push(obBoxes, _obBox)
+    while array.size(obBoxes) > i_fvgMaxBoxes
+        box.delete(array.get(obBoxes, 0))
+        array.remove(obBoxes, 0)
+        array.remove(obTops, 0)
+        array.remove(obBots, 0)
+        array.remove(obDirs, 0)
+
+if array.size(obBoxes) > 0
+    _idx = array.size(obBoxes) - 1
+    while _idx >= 0
+        _ot = array.get(obTops, _idx)
+        _ob = array.get(obBots, _idx)
+        _od = array.get(obDirs, _idx)
+        _mitOb = h1BarNew and ((_od == 1 and not na(h1C) and h1C < _ob) or (_od == -1 and not na(h1C) and h1C > _ot))
+        if _mitOb
+            box.delete(array.get(obBoxes, _idx))
+            array.remove(obBoxes, _idx)
+            array.remove(obTops, _idx)
+            array.remove(obBots, _idx)
+            array.remove(obDirs, _idx)
+        else
+            box.set_right(array.get(obBoxes, _idx), bar_index + 5)
+        _idx -= 1
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PB Fib Zone — Fib lines + barcolor when price is in zone
+// ─────────────────────────────────────────────────────────────────────────────
+
+var line  _fibLine382 = na
+var line  _fibLine618 = na
+var line  _fibLine786 = na
+var label _fibLbl     = na
+var float _prevImpHi  = na
+var float _prevImpLo  = na
+var int   _prevZoneTr = 0
+var float _pbFib382   = na
+var float _pbFib618   = na
+var float _pbFib786   = na
+_impRange = not na(h1ImpHi) and not na(h1ImpLo) ? h1ImpHi - h1ImpLo : 0.0
+
+var int    _alertConfCount = 0
+var string _alertConfTxt   = ""
+
+_pbZoneOk = i_showPbZone and timeframe.period == "60" and
+     not na(h1ImpHi) and not na(h1ImpLo) and _impRange > 0 and h1Trend != 0
+
+if _pbZoneOk
+    _pbFib382 := h1Trend == 1 ? h1ImpHi - _impRange * 0.382 : h1ImpLo + _impRange * 0.382
+    _pbFib618 := h1Trend == 1 ? h1ImpHi - _impRange * 0.618 : h1ImpLo + _impRange * 0.618
+    _pbFib786 := h1Trend == 1 ? h1ImpHi - _impRange * 0.786 : h1ImpLo + _impRange * 0.786
+
+    _swingChanged = h1ImpHi != _prevImpHi or h1ImpLo != _prevImpLo or h1Trend != _prevZoneTr
+
+    _lineCol382 = color.new(h1Trend == 1 ? #00E676 : #FF5252, 60)
+    _lineCol618 = color.new(h1Trend == 1 ? #00E676 : #FF5252, 30)
+    _lineCol786 = color.new(h1Trend == 1 ? #00E676 : #FF5252, 40)
+
+    if _swingChanged
+        line.delete(_fibLine382)
+        line.delete(_fibLine618)
+        line.delete(_fibLine786)
+        _fibLine382 := line.new(bar_index, _pbFib382, bar_index + 1, _pbFib382,
+             color = _lineCol382, style = line.style_dotted, width = 1, extend = extend.right)
+        _fibLine618 := line.new(bar_index, _pbFib618, bar_index + 1, _pbFib618,
+             color = _lineCol618, style = line.style_dashed, width = 1, extend = extend.right)
+        _fibLine786 := line.new(bar_index, _pbFib786, bar_index + 1, _pbFib786,
+             color = _lineCol786, style = line.style_dotted, width = 1, extend = extend.right)
+        _prevImpHi := h1ImpHi
+        _prevImpLo := h1ImpLo
+        _prevZoneTr := h1Trend
+
+    // Confluence label at 61.8% line
+    _fullTop = h1Trend == 1 ? _pbFib382 : _pbFib786
+    _fullBtm = h1Trend == 1 ? _pbFib786 : _pbFib382
+    _eInZ = not na(h1EmaF) and h1EmaF >= _fullBtm and h1EmaF <= _fullTop
+    _fOvl = false
+    if array.size(fvgTops) > 0
+        for i = 0 to array.size(fvgTops) - 1
+            if array.get(fvgTops, i) >= _fullBtm and array.get(fvgBots, i) <= _fullTop
+                _fOvl := true
+                break
+    _pdH = not na(pdH) and pdH >= _fullBtm and pdH <= _fullTop
+    _pdL = not na(pdL) and pdL >= _fullBtm and pdL <= _fullTop
+    _kzOk = _londonActive or _nyActive
+
+    _obOvl = false
+    if array.size(obTops) > 0
+        for i = 0 to array.size(obTops) - 1
+            if array.get(obTops, i) >= _fullBtm and array.get(obBots, i) <= _fullTop
+                _obOvl := true
+                break
+
+    _swpOk = not na(h1LastSweepBar) and (bar_index - h1LastSweepBar) <= 10
+         and ((h1Trend == 1 and h1LastSweepDir == 1) or (h1Trend == -1 and h1LastSweepDir == -1))
+
+    _confCount = 0
+    _parts = ""
+    if _eInZ
+        _parts += "EMA "
+        _confCount += 1
+    if _fOvl
+        _parts += "FVG "
+        _confCount += 1
+    if _obOvl
+        _parts += "OB "
+        _confCount += 1
+    if _swpOk
+        _parts += "SWP "
+        _confCount += 1
+    if _pdH
+        _parts += "PDH "
+        _confCount += 1
+    if _pdL
+        _parts += "PDL "
+        _confCount += 1
+    if _kzOk
+        _parts += "KZ "
+        _confCount += 1
+    _confTxt = _parts != "" ? "OTE | " + str.trim(_parts) : "OTE"
+    _alertConfCount := _confCount
+    _alertConfTxt   := str.trim(_parts)
+
+    label.delete(_fibLbl)
+    _fibLbl := label.new(bar_index + 5, _pbFib618, _confTxt,
+         style = label.style_label_left, color = color.new(color.black, 100),
+         textcolor = color.new(h1Trend == 1 ? #00E676 : #FF5252, 20),
+         size = size.small)
+else
+    _pbFib382 := na
+    _pbFib618 := na
+    _pbFib786 := na
+    line.delete(_fibLine382)
+    line.delete(_fibLine618)
+    line.delete(_fibLine786)
+    label.delete(_fibLbl)
+    _fibLine382 := na
+    _fibLine618 := na
+    _fibLine786 := na
+    _prevImpHi := na
+    _prevImpLo := na
+    _prevZoneTr := 0
+
+_pbZoneTop = h1Trend == 1 ? _pbFib382 : _pbFib786
+_pbZoneBtm = h1Trend == 1 ? _pbFib786 : _pbFib382
+_inPbZone  = _pbZoneOk and not na(h1C) and not na(_pbZoneTop) and not na(_pbZoneBtm) and h1C >= _pbZoneBtm and h1C <= _pbZoneTop
+
+_pbBarCol = _inPbZone ? color.new(h1Trend == 1 ? #00E676 : #FF5252, 0) : na
+
+barcolor(_pbBarCol, title = "PB Fib Zone")
+
+// ── Alert state tracking ──
+var bool _wasInPbZone = false
+
+_zoneEntry = _inPbZone and not _wasInPbZone
+_wasInPbZone := _inPbZone
+if not _inPbZone
+    _alertConfCount := 0
+    _alertConfTxt   := ""
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared PB helpers (trend alignment, candle pattern, zone proximity, fib)
+// ─────────────────────────────────────────────────────────────────────────────
+
+h4TrendOk = h1Trend == 1 ? h4Trend != -1 : h1Trend == -1 ? h4Trend != 1 : true
+
+h1AtrZone = not na(h1Atr) ? h1Atr * 1.5 : 0.0
+
+h1PendGreen  = not na(h1C) and not na(h1PrevC1) and h1C > h1PrevC1
+h1PendRed    = not na(h1C) and not na(h1PrevC1) and h1C < h1PrevC1
+h1PendDown1  = not na(h1PrevC1) and not na(h1PrevC2) and h1PrevC1 < h1PrevC2
+h1PendDown2  = h1PendDown1 and not na(h1PrevC3) and h1PrevC2 < h1PrevC3
+h1PendUp1    = not na(h1PrevC1) and not na(h1PrevC2) and h1PrevC1 > h1PrevC2
+h1PendUp2    = h1PendUp1 and not na(h1PrevC3) and h1PrevC2 > h1PrevC3
+h1PendPbDnOk = i_pbBars >= 2 ? h1PendDown2 : h1PendDown1
+h1PendPbUpOk = i_pbBars >= 2 ? h1PendUp2   : h1PendUp1
+
+h1PendNearSwLo = not na(h1L) and not na(h1LastSwLo) and h1L <= h1LastSwLo + h1AtrZone
+h1PendNearSwHi = not na(h1H) and not na(h1LastSwHi) and h1H >= h1LastSwHi - h1AtrZone
+h1PendNearEma  = not na(h1L) and not na(h1H) and not na(h1EmaF) and
+     (h1L <= h1EmaF + h1AtrZone and h1H >= h1EmaF - h1AtrZone)
+
+// FVG zone check — is price inside an active (unmitigated) FVG?
+var bool _inBullFvg = false
+var bool _inBearFvg = false
+_inBullFvg := false
+_inBearFvg := false
+if array.size(fvgTops) > 0
+    for i = array.size(fvgTops) - 1 to 0
+        _ft = array.get(fvgTops, i)
+        _fb = array.get(fvgBots, i)
+        _fd = array.get(fvgDirs, i)
+        if _fd == 1 and not na(h1L) and h1L <= _ft and h1L >= _fb
+            _inBullFvg := true
+        if _fd == -1 and not na(h1H) and h1H >= _fb and h1H <= _ft
+            _inBearFvg := true
+
+h1PendZoneBull = h1PendNearSwLo or h1PendNearEma or _inBullFvg
+h1PendZoneBear = h1PendNearSwHi or h1PendNearEma or _inBearFvg
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 2: Pattern Ready — reversal candle appeared in zone
+// ─────────────────────────────────────────────────────────────────────────────
+
+_dotLvl   = h1PendGreen ? h1L : h1PendRed ? h1H : na
+_dotDepth = _impRange > 0 and not na(_dotLvl) ?
+     (h1PendGreen ? (h1ImpHi - _dotLvl) / _impRange : (_dotLvl - h1ImpLo) / _impRange) * 100 : na
+_dotFibOk = not na(_dotDepth) and _dotDepth >= 38.2 and _dotDepth <= 100.0
+
+h1DotBull = i_pbH1 and timeframe.period == "60" and h1Trend == 1  and h4TrendOk and h1PendPbDnOk and h1PendGreen and h1PendZoneBull and _dotFibOk
+h1DotBear = i_pbH1 and timeframe.period == "60" and h1Trend == -1 and h4TrendOk and h1PendPbUpOk and h1PendRed   and h1PendZoneBear and _dotFibOk
+
+plotshape(i_showPbDots and h1DotBull, style = shape.triangleup, size = size.tiny,
+     color = color.new(#00E676, 0), location = location.belowbar, title = "PB Dot Bull")
+plotshape(i_showPbDots and h1DotBear, style = shape.triangledown, size = size.tiny,
+     color = color.new(#FF5252, 0), location = location.abovebar, title = "PB Dot Bear")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Alert System (3-Tier)
+// ─────────────────────────────────────────────────────────────────────────────
+
+_alertDir = h1Trend == 1 ? "BULL" : h1Trend == -1 ? "BEAR" : "FLAT"
+
+// Tier 1: Price enters Fib zone (first bar only)
+_t1Bull = _zoneEntry and h1Trend == 1
+_t1Bear = _zoneEntry and h1Trend == -1
+alertcondition(_t1Bull, title = "🟡 T1 Zone Entry Bull",
+     message = '{"tier":1,"type":"ZONE_ENTRY","dir":"BULL","pair":"{{ticker}}","tf":"H1","price":"{{close}}","action":"เตรียมตัว — ราคาเข้าโซน Fib"}')
+alertcondition(_t1Bear, title = "🟡 T1 Zone Entry Bear",
+     message = '{"tier":1,"type":"ZONE_ENTRY","dir":"BEAR","pair":"{{ticker}}","tf":"H1","price":"{{close}}","action":"เตรียมตัว — ราคาเข้าโซน Fib"}')
+
+// Tier 2: High confluence (>= 3 factors) while in zone
+_t2Bull = _inPbZone and h1Trend == 1  and _alertConfCount >= 3
+_t2Bear = _inPbZone and h1Trend == -1 and _alertConfCount >= 3
+alertcondition(_t2Bull, title = "🟠 T2 High Confluence Bull",
+     message = '{"tier":2,"type":"HIGH_CONF","dir":"BULL","pair":"{{ticker}}","tf":"H1","price":"{{close}}","action":"โอกาสดี — confluence สูง เริ่มหา entry"}')
+alertcondition(_t2Bear, title = "🟠 T2 High Confluence Bear",
+     message = '{"tier":2,"type":"HIGH_CONF","dir":"BEAR","pair":"{{ticker}}","tf":"H1","price":"{{close}}","action":"โอกาสดี — confluence สูง เริ่มหา entry"}')
+
+// Tier 3a: Sweep in zone (aligned with trend)
+_sweepInZoneBull = h1SweepBull and _inPbZone and h1Trend == 1
+_sweepInZoneBear = h1SweepBear and _inPbZone and h1Trend == -1
+alertcondition(_sweepInZoneBull, title = "🔴 T3 Sweep+Zone Bull",
+     message = '{"tier":3,"type":"SWEEP_ZONE","dir":"BULL","pair":"{{ticker}}","tf":"H1","price":"{{close}}","action":"พร้อม — Sweep ในโซน OTE เตรียม entry Long"}')
+alertcondition(_sweepInZoneBear, title = "🔴 T3 Sweep+Zone Bear",
+     message = '{"tier":3,"type":"SWEEP_ZONE","dir":"BEAR","pair":"{{ticker}}","tf":"H1","price":"{{close}}","action":"พร้อม — Sweep ในโซน OTE เตรียม entry Short"}')
+
+// Tier 3b: Phase 2 confirmation (existing)
+alertcondition(h1DotBull, title = "🔴 T3 PB Confirm Bull",
+     message = '{"tier":3,"type":"PB_CONFIRM","dir":"BULL","pair":"{{ticker}}","tf":"H1","price":"{{close}}","action":"พร้อม — แท่งกลับตัวยืนยัน เตรียม entry Long"}')
+alertcondition(h1DotBear, title = "🔴 T3 PB Confirm Bear",
+     message = '{"tier":3,"type":"PB_CONFIRM","dir":"BEAR","pair":"{{ticker}}","tf":"H1","price":"{{close}}","action":"พร้อม — แท่งกลับตัวยืนยัน เตรียม entry Short"}')
 
 // ─────────────────────────────────────────────────────────────────────────────
 // M15 Momentum Candle
@@ -634,7 +911,6 @@ alertcondition(h1PbJustFired and h1PbBear, title = "H1 Pullback Bear", message =
 m15Bull = m15C > m15O
 m15SuperBody   = not na(m15Body) and not na(m15AvgB) and m15Body > m15AvgB * i_momSuper
 m15AboveAvg    = not na(m15Body) and not na(m15AvgB) and m15Body > m15AvgB
-
 m15Mom = m15SuperBody ? (m15Bull ? 2 : -2) : m15AboveAvg ? (m15Bull ? 1 : -1) : 0
 
 aboveAvgBullClr = color.new(#66BB6A, 0)
@@ -649,85 +925,3 @@ m15MomCol = not i_showMomBar or not isM15 ? na :
      m15Mom == -1 ? aboveAvgBearClr : na
 
 barcolor(m15MomCol, title = "M15 Momentum")
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Status Panel
-// ─────────────────────────────────────────────────────────────────────────────
-
-// --- Helper: PB status text ---
-pbStatusTxt(int _trend, bool _active, bool _enabled, int _pbDir) =>
-    not _enabled ? "– ปิด" : _trend == 0 ? "⚪ Sideway" : _active ? (_pbDir == 1 ? "🔵 PB Bull" : "🔵 PB Bear") : "– รอ PB"
-
-pbStatusCol(int _trend, bool _active, bool _enabled, int _pbDir) =>
-    not _enabled ? color.gray : _trend == 0 ? color.gray : not _active ? color.gray :
-         _pbDir == 1 ? color.green : color.red
-
-trendStatusTxt(int _trend, float _adx, float _bbW, bool _adxUp, bool _bbSq) =>
-    _aTxt = str.tostring(_adx, "#.#") + (_adxUp ? "↑" : "↓")
-    _bTxt = str.tostring(_bbW, "#.#") + "%" + (_bbSq ? "↓" : "↑")
-    _trend == 1 ? "🟢 Bull  ADX " + _aTxt + " | BB " + _bTxt :
-     _trend == -1 ? "🔴 Bear  ADX " + _aTxt + " | BB " + _bTxt :
-     "⚪ Sideway  ADX " + _aTxt + " | BB " + _bTxt
-
-trendStatusCol(int _trend) =>
-    _trend == 1 ? color.green : _trend == -1 ? color.red : color.gray
-
-ovsTrendTxt(int _t) =>
-    _t == 1 ? "🟢 UP" : _t == -1 ? "🔴 DN" : _t == 2 ? "🟡 ⚠HL" : _t == -2 ? "🟡 ⚠LH" : "⚪ –"
-
-ovsTrendCol(int _t) =>
-    _t == 1 ? color.green : _t == -1 ? color.red : (_t == 2 or _t == -2) ? color.yellow : color.gray
-
-if barstate.islast
-    var table statusTbl = table.new(position.bottom_right, 3, 8,
-         bgcolor = color.new(#1E1E1E, 0), border_color = color.new(#333333, 0), border_width = 1,
-         frame_color = color.new(#555555, 0), frame_width = 2)
-
-    hSz = size.small
-    vSz = size.small
-
-    table.cell(statusTbl, 0, 0, "Chart TF", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
-    table.cell(statusTbl, 1, 0, mainTFTag, text_color = color.white, text_size = vSz, text_halign = text.align_left)
-
-    trendTxt = trend == 1 ? "🟢 UP" : trend == -1 ? "🔴 DN" : trend == 2 ? "🟡 ⚠HL" : trend == -2 ? "🟡 ⚠LH" : "⚪ –"
-    trendCol = trend == 1 ? color.green : trend == -1 ? color.red : trend == 2 or trend == -2 ? color.yellow : color.gray
-    table.cell(statusTbl, 0, 1, "เทรน", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
-    table.cell(statusTbl, 1, 1, trendTxt, text_color = trendCol, text_size = vSz, text_halign = text.align_left)
-
-    smTxt = smState == SM_WAIT_OVS ? "🔻 OVS" : "🔺 OVB"
-    smCol = smState == SM_WAIT_OVS ? color.aqua : color.orange
-    table.cell(statusTbl, 0, 2, "Stoch", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
-    table.cell(statusTbl, 1, 2, smTxt, text_color = smCol, text_size = vSz, text_halign = text.align_left)
-
-    emaTxt = emaFast > emaSlow ? "🟢 บวก" : "🔴 ลบ"
-    emaCol = emaFast > emaSlow ? color.green : color.red
-    table.cell(statusTbl, 0, 3, "EMA", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
-    table.cell(statusTbl, 1, 3, emaTxt, text_color = emaCol, text_size = vSz, text_halign = text.align_left)
-
-    table.cell(statusTbl, 0, 4, "", text_color = color.gray, text_size = hSz)
-    table.cell(statusTbl, 1, 4, "ADX Trend", text_color = color.gray, text_size = hSz, text_halign = text.align_left)
-    table.cell(statusTbl, 2, 4, "H1 PB / M15 Mom", text_color = color.gray, text_size = hSz, text_halign = text.align_left)
-
-    _h1PbTxt = h1PbPending ? (h1PbPendBull ? "⏳ PB Bull" : "⏳ PB Bear") : pbStatusTxt(h1Trend, h1PbActive, i_pbH1, h1PbDir)
-    _h1PbCol = h1PbPending ? color.yellow : pbStatusCol(h1Trend, h1PbActive, i_pbH1, h1PbDir)
-
-    _m15MomTxt = m15Mom ==  2 ? "🟢🟢 Super Bull" :
-                 m15Mom == -2 ? "🔴🔴 Super Bear" :
-                 m15Mom ==  1 ? "🟢 Bull" :
-                 m15Mom == -1 ? "🔴 Bear" : "⚪ –"
-    _m15MomCol = m15Mom ==  2 ? superBullClr :
-                 m15Mom == -2 ? superBearClr :
-                 m15Mom ==  1 ? aboveAvgBullClr :
-                 m15Mom == -1 ? aboveAvgBearClr : color.gray
-
-    table.cell(statusTbl, 0, 5, "H1", text_color = color.white, text_size = hSz, text_halign = text.align_right)
-    table.cell(statusTbl, 1, 5, trendStatusTxt(h1Trend, h1Adx, h1BbW, h1AdxRising, h1BbSqueeze), text_color = trendStatusCol(h1Trend), text_size = vSz, text_halign = text.align_left)
-    table.cell(statusTbl, 2, 5, _h1PbTxt, text_color = _h1PbCol, text_size = vSz, text_halign = text.align_left)
-
-    table.cell(statusTbl, 0, 6, "M15", text_color = color.white, text_size = hSz, text_halign = text.align_right)
-    table.cell(statusTbl, 1, 6, ovsTrendTxt(m15OvsTrend), text_color = ovsTrendCol(m15OvsTrend), text_size = vSz, text_halign = text.align_left)
-    table.cell(statusTbl, 2, 6, _m15MomTxt, text_color = _m15MomCol, text_size = vSz, text_halign = text.align_left)
-
-    table.cell(statusTbl, 0, 7, "M5", text_color = color.white, text_size = hSz, text_halign = text.align_right)
-    table.cell(statusTbl, 1, 7, ovsTrendTxt(m5OvsTrend), text_color = ovsTrendCol(m5OvsTrend), text_size = vSz, text_halign = text.align_left)
-    table.cell(statusTbl, 2, 7, "", text_color = color.gray, text_size = vSz, text_halign = text.align_left)
