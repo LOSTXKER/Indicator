@@ -1,0 +1,33 @@
+// TDI - Traders Dynamic Index [Goldminds]
+// Modified by Jakub — converted to Pine Script v6
+
+//@version=6
+indicator("TDI - Traders Dynamic Index [Goldminds]", shorttitle = "TDIGM")
+
+rsiPeriod    = input.int(13, "RSI Period",      minval = 1)
+bandLength   = input.int(31, "Band Length",      minval = 1)
+lengthrsipl  = input.int(1,  "Fast MA on RSI",  minval = 1)
+lengthtradesl = input.int(9, "Slow MA on RSI",  minval = 1)
+
+src    = close
+r      = ta.rsi(src, rsiPeriod)
+ma     = ta.sma(r, bandLength)
+offs   = 1.6185 * ta.stdev(r, bandLength)
+up     = ma + offs
+dn     = ma - offs
+mid    = (up + dn) / 2
+fastMA = ta.sma(r, lengthrsipl)
+slowMA = ta.sma(r, lengthtradesl)
+
+hline(20, "Extremely Oversold",  color = color.new(color.gray, 60))
+hline(30, "Oversold",            color = color.new(color.gray, 60))
+hline(50, "Midline",             color = color.new(color.gray, 40), linestyle = hline.style_solid)
+hline(70, "Overbought",          color = color.new(color.gray, 60))
+hline(80, "Extremely Overbought", color = color.new(color.gray, 60))
+
+upl  = plot(up,     "Upper Band",       color = #2962ff, linewidth = 4)
+dnl  = plot(dn,     "Lower Band",       color = #2962ff, linewidth = 4)
+midl = plot(mid,    "Middle of Bands",  color = #f57f17, linewidth = 4)
+
+plot(slowMA, "Slow MA", color = #008000, linewidth = 4)
+plot(fastMA, "Fast MA", color = #ab0506, linewidth = 3)

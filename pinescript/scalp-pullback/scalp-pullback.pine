@@ -1,0 +1,734 @@
+// This Pine Script™ is subject to the terms of the Mozilla Public License 2.0
+// https://mozilla.org/MPL/2.0/
+
+//@version=6
+indicator("Scalp Pullback", overlay = true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 300, max_bars_back = 5000)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inputs
+// ─────────────────────────────────────────────────────────────────────────────
+
+grpHTF = "📐 HTF Bias (H4/H1)"
+i_emaFast   = input.int(14, "Fast EMA", minval = 1, group = grpHTF)
+i_emaSlow   = input.int(60, "Slow EMA", minval = 1, group = grpHTF)
+i_adxLen    = input.int(14, "ADX Length", minval = 5, maxval = 50, group = grpHTF)
+i_adxThresh = input.int(20, "ADX Sideway Threshold", minval = 10, maxval = 40, group = grpHTF,
+     tooltip = "ADX ต่ำกว่านี้ = Sideway ไม่มีเทรน")
+i_h1SwingLen = input.int(6, "H1 Swing Lookback", minval = 3, maxval = 20, group = grpHTF)
+
+grpMicro = "🔬 Micro Structure (Chart TF)"
+i_microSwingLen = input.int(3, "Micro Swing Lookback", minval = 2, maxval = 10, group = grpMicro,
+     tooltip = "ช่วงหา Micro Swing High/Low บน M5/M1")
+i_showEMA   = input.bool(true, "แสดงเส้น EMA", group = grpMicro)
+i_showCloud = input.bool(true, "แสดง EMA Cloud", group = grpMicro)
+i_showBOS   = input.bool(true, "แสดง BOS (Break of Structure)", group = grpMicro,
+     tooltip = "จุดที่โครงสร้างราคาเปลี่ยน — pullback จบ เทรนกลับมา")
+i_showMicroSwing = input.bool(true, "แสดงจุด Micro Swing", group = grpMicro)
+
+grpPOI = "📍 Key Level POI"
+i_showH1FVG  = input.bool(true, "แสดง H1 FVG", group = grpPOI)
+i_showH1OB   = input.bool(true, "แสดง H1 Order Block", group = grpPOI)
+i_showMicroFVG = input.bool(false, "แสดง Micro FVG", group = grpPOI,
+     tooltip = "FVG บน chart TF — เยอะบน M5/M1 แนะนำปิด")
+i_showMicroOB  = input.bool(false, "แสดง Micro OB", group = grpPOI,
+     tooltip = "OB บน chart TF — เยอะบน M5/M1 แนะนำปิด")
+i_showSweep  = input.bool(true, "แสดง Micro Sweep", group = grpPOI,
+     tooltip = "จุดที่ราคา wick ทะลุ micro swing แล้วกลับตัว")
+i_maxBoxes   = input.int(8, "จำนวน Box สูงสุด (ต่อประเภท)", minval = 3, maxval = 50, group = grpPOI)
+
+grpSess = "⏰ Session / Kill Zone (ICT)"
+i_sessAsian    = input.bool(true, "Asian Kill Zone", group = grpSess, tooltip = "19:00–22:00 NY")
+i_sessLondon   = input.bool(true, "London Kill Zone", group = grpSess, tooltip = "02:00–05:00 NY")
+i_sessNY       = input.bool(true, "New York Kill Zone", group = grpSess, tooltip = "07:00–10:00 NY")
+i_sessLdnClose = input.bool(true, "London Close Kill Zone", group = grpSess, tooltip = "10:00–12:00 NY")
+i_showSessBg   = input.bool(false, "แสดงพื้นหลัง Session", group = grpSess)
+
+grpLevels = "📏 Key Levels"
+i_showPDHL   = input.bool(true, "แสดง Previous Day High/Low", group = grpLevels)
+i_showH1EMA  = input.bool(true, "แสดง H1 EMA บนชาร์ต", group = grpLevels,
+     tooltip = "เส้น EMA จาก H1 เป็น dynamic S/R")
+
+grpScore = "⚖️ Score Weights"
+i_wOB       = input.int(3, "H1 OB", minval = 0, maxval = 5, group = grpScore, tooltip = "Order Block น้ำหนักสูงสุด")
+i_wFVG      = input.int(2, "H1 FVG", minval = 0, maxval = 5, group = grpScore)
+i_wSwing    = input.int(2, "H1 Swing Hi/Lo", minval = 0, maxval = 5, group = grpScore)
+i_wPDHL     = input.int(2, "PDH/PDL", minval = 0, maxval = 5, group = grpScore)
+i_wH1EMA    = input.int(1, "H1 EMA", minval = 0, maxval = 5, group = grpScore, tooltip = "Dynamic S/R อ่อนที่สุด")
+i_wBOS      = input.int(2, "BOS", minval = 0, maxval = 5, group = grpScore)
+i_wSweep    = input.int(2, "Micro Sweep", minval = 0, maxval = 5, group = grpScore)
+i_wReclaim  = input.int(1, "EMA Reclaim", minval = 0, maxval = 5, group = grpScore)
+i_minScore  = input.int(5, "คะแนนขั้นต่ำ Entry", minval = 1, maxval = 15, group = grpScore,
+     tooltip = "ต้องได้คะแนนรวมถึงเกณฑ์นี้ถึงจะแสดง Entry signal")
+i_premScore = input.int(7, "คะแนน Premium", minval = 1, maxval = 15, group = grpScore,
+     tooltip = "คะแนนถึงระดับนี้ = setup คุณภาพสูง")
+
+grpEntry = "🎯 Entry Signal"
+i_showEntry  = input.bool(true, "แสดงสัญญาณ Entry", group = grpEntry)
+i_momAvgLen  = input.int(15, "Avg Body Period (Momentum)", minval = 2, group = grpEntry)
+i_momSuper   = input.float(1.5, "Super Multiplier", minval = 1.0, step = 0.1, group = grpEntry)
+i_showMomBar = input.bool(true, "แสดงสีแท่ง Momentum", group = grpEntry)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EMA (chart TF)
+// ─────────────────────────────────────────────────────────────────────────────
+
+emaFast = ta.ema(close, i_emaFast)
+emaSlow = ta.ema(close, i_emaSlow)
+
+pFast = plot(i_showEMA ? emaFast : na, "EMA Fast", color.new(color.yellow, 0), 2)
+pSlow = plot(i_showEMA ? emaSlow : na, "EMA Slow", color.new(#FF9800, 0), 2)
+cloudCol = emaFast > emaSlow ? color.new(color.green, 85) : color.new(color.red, 85)
+fill(pFast, pSlow, i_showCloud ? cloudCol : na, title = "EMA Cloud")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TF Role Detection — show only what each TF is responsible for
+// ─────────────────────────────────────────────────────────────────────────────
+
+_tfSec = timeframe.in_seconds()
+_isHTF = _tfSec >= 14400                       // H4+ → bias only
+_isH1  = _tfSec >= 3600 and _tfSec < 14400     // H1-H3 → structure (FVG, OB, Swing)
+_isLTF = _tfSec < 3600                          // M30 and below → micro + entry
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pre-request helpers (evaluated in each TF context inside request.security)
+// ─────────────────────────────────────────────────────────────────────────────
+
+h1PivHi = ta.pivothigh(high, i_h1SwingLen, i_h1SwingLen)
+h1PivLo = ta.pivotlow(low, i_h1SwingLen, i_h1SwingLen)
+_prevC1  = close[1]
+_prevC2  = close[2]
+_prevH2  = high[2]
+_prevL2  = low[2]
+_prevO2  = open[2]
+_prevBody1  = math.abs(close[1] - open[1])
+_avgBody    = ta.sma(math.abs(close - open), 14)
+_atrVal     = ta.atr(14)
+[_, _, _adxVal] = ta.dmi(i_adxLen, i_adxLen)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Multi-TF Data Fetching
+// ─────────────────────────────────────────────────────────────────────────────
+
+[h4EmaF, h4EmaS, h4Adx] = request.security(syminfo.tickerid, "240",
+     [emaFast, emaSlow, _adxVal])
+
+[h1C, h1H, h1L, h1O, h1EmaF, h1EmaS, h1T, h1PivH, h1PivL, h1PrevC2, h1PrevH2, h1PrevL2, h1PrevO2, h1PrevBody1, h1AvgBody, h1Atr, h1Adx] = request.security(syminfo.tickerid, "60",
+     [close, high, low, open, emaFast, emaSlow, time, h1PivHi, h1PivLo, _prevC2, _prevH2, _prevL2, _prevO2, _prevBody1, _avgBody, _atrVal, _adxVal])
+
+[pdH, pdL] = request.security(syminfo.tickerid, "D", [high[1], low[1]])
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H1 Bar change detection
+// ─────────────────────────────────────────────────────────────────────────────
+
+var int prevH1T = na
+h1BarNew = not na(h1T) and (na(prevH1T) or h1T != prevH1T)
+if not na(h1T)
+    prevH1T := h1T
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H4 Trend Detection (top-level bias)
+// ─────────────────────────────────────────────────────────────────────────────
+
+h4AdxOk = not na(h4Adx) and h4Adx >= i_adxThresh
+h4Trend = h4AdxOk ? (h4EmaF > h4EmaS ? 1 : -1) : 0
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H1 Trend Detection (ADX + EMA direction)
+// ─────────────────────────────────────────────────────────────────────────────
+
+h1AdxOk = not na(h1Adx) and h1Adx >= i_adxThresh
+h1Trend = h1AdxOk ? (h1EmaF > h1EmaS ? 1 : -1) : 0
+
+htfBias = h1Trend == 1 and h4Trend != -1 ? 1 : h1Trend == -1 and h4Trend != 1 ? -1 : 0
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H1 Swing Tracking (Key Levels for pullback reference)
+// ─────────────────────────────────────────────────────────────────────────────
+
+var float h1LastSwHi = na
+var float h1LastSwLo = na
+h1SwMinRange = not na(h1Atr) ? h1Atr * 1.0 : 0.0
+
+if h1BarNew and not na(h1PivH)
+    _swRange = not na(h1LastSwLo) ? h1PivH - h1LastSwLo : h1SwMinRange + 1
+    if _swRange >= h1SwMinRange
+        h1LastSwHi := h1PivH
+if h1BarNew and not na(h1PivL)
+    _swRange = not na(h1LastSwHi) ? h1LastSwHi - h1PivL : h1SwMinRange + 1
+    if _swRange >= h1SwMinRange
+        h1LastSwLo := h1PivL
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H1 FVG Detection (Key Level POI)
+// ─────────────────────────────────────────────────────────────────────────────
+
+var array<box>   h1FvgBoxes  = array.new<box>()
+var array<float> h1FvgTops   = array.new<float>()
+var array<float> h1FvgBots   = array.new<float>()
+var array<int>   h1FvgDirs   = array.new<int>()
+var array<int>   h1FvgTouch  = array.new<int>()
+var array<bool>  h1FvgAway   = array.new<bool>()
+
+h1FvgBull = not na(h1L) and not na(h1PrevH2) and h1L > h1PrevH2
+h1FvgBear = not na(h1H) and not na(h1PrevL2) and h1H < h1PrevL2
+
+if h1BarNew and i_showH1FVG and (_isH1 or _isLTF)
+    if h1FvgBull
+        _top = h1L
+        _bot = h1PrevH2
+        array.push(h1FvgTops, _top)
+        array.push(h1FvgBots, _bot)
+        array.push(h1FvgDirs, 1)
+        array.push(h1FvgTouch, 0)
+        array.push(h1FvgAway, false)
+        _b = box.new(bar_index - 2, _top, bar_index, _bot,
+             bgcolor = color.new(#00C853, 92), border_color = color.new(#00C853, 60), border_width = 1)
+        box.set_text(_b, "H1 FVG ✦")
+        box.set_text_color(_b, color.new(#00C853, 10))
+        box.set_text_size(_b, size.small)
+        array.push(h1FvgBoxes, _b)
+    if h1FvgBear
+        _top = h1PrevL2
+        _bot = h1H
+        array.push(h1FvgTops, _top)
+        array.push(h1FvgBots, _bot)
+        array.push(h1FvgDirs, -1)
+        array.push(h1FvgTouch, 0)
+        array.push(h1FvgAway, false)
+        _b = box.new(bar_index - 2, _top, bar_index, _bot,
+             bgcolor = color.new(#D50000, 92), border_color = color.new(#D50000, 60), border_width = 1)
+        box.set_text(_b, "H1 FVG ✦")
+        box.set_text_color(_b, color.new(#D50000, 10))
+        box.set_text_size(_b, size.small)
+        array.push(h1FvgBoxes, _b)
+    while array.size(h1FvgBoxes) > i_maxBoxes
+        box.delete(array.get(h1FvgBoxes, 0))
+        array.remove(h1FvgBoxes, 0)
+        array.remove(h1FvgTops, 0)
+        array.remove(h1FvgBots, 0)
+        array.remove(h1FvgDirs, 0)
+        array.remove(h1FvgTouch, 0)
+        array.remove(h1FvgAway, 0)
+
+if array.size(h1FvgBoxes) > 0
+    _i = array.size(h1FvgBoxes) - 1
+    while _i >= 0
+        _ft = array.get(h1FvgTops, _i)
+        _fb = array.get(h1FvgBots, _i)
+        _fd = array.get(h1FvgDirs, _i)
+        _tc = array.get(h1FvgTouch, _i)
+        _aw = array.get(h1FvgAway, _i)
+        _mit = (_fd == 1 and close < _fb) or (_fd == -1 and close > _ft)
+        if _mit
+            box.delete(array.get(h1FvgBoxes, _i))
+            array.remove(h1FvgBoxes, _i)
+            array.remove(h1FvgTops, _i)
+            array.remove(h1FvgBots, _i)
+            array.remove(h1FvgDirs, _i)
+            array.remove(h1FvgTouch, _i)
+            array.remove(h1FvgAway, _i)
+        else
+            _inZone = (_fd == 1 and low <= _ft and close > _fb) or (_fd == -1 and high >= _fb and close < _ft)
+            if not _inZone and not _aw
+                array.set(h1FvgAway, _i, true)
+                _aw := true
+            if _aw and _inZone
+                _wasIn = (_fd == 1 and low[1] <= _ft and close[1] > _fb) or (_fd == -1 and high[1] >= _fb and close[1] < _ft)
+                if not _wasIn
+                    _tc += 1
+                    array.set(h1FvgTouch, _i, _tc)
+                    box.set_text(array.get(h1FvgBoxes, _i), "H1 FVG ×" + str.tostring(_tc))
+            box.set_right(array.get(h1FvgBoxes, _i), bar_index + 5)
+        _i -= 1
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H1 Order Block Detection (Key Level POI)
+// ─────────────────────────────────────────────────────────────────────────────
+
+var array<box>   h1ObBoxes  = array.new<box>()
+var array<float> h1ObTops   = array.new<float>()
+var array<float> h1ObBots   = array.new<float>()
+var array<int>   h1ObDirs   = array.new<int>()
+var array<int>   h1ObTouch  = array.new<int>()
+var array<bool>  h1ObAway   = array.new<bool>()
+
+h1ObBull = h1FvgBull and not na(h1PrevBody1) and not na(h1AvgBody) and h1PrevBody1 > h1AvgBody * 1.5
+     and not na(h1PrevC2) and not na(h1PrevO2) and h1PrevC2 < h1PrevO2
+h1ObBear = h1FvgBear and not na(h1PrevBody1) and not na(h1AvgBody) and h1PrevBody1 > h1AvgBody * 1.5
+     and not na(h1PrevC2) and not na(h1PrevO2) and h1PrevC2 > h1PrevO2
+
+if h1BarNew and i_showH1OB and (_isH1 or _isLTF)
+    if h1ObBull
+        array.push(h1ObTops, h1PrevH2)
+        array.push(h1ObBots, h1PrevL2)
+        array.push(h1ObDirs, 1)
+        array.push(h1ObTouch, 0)
+        array.push(h1ObAway, false)
+        _b = box.new(bar_index - 2, h1PrevH2, bar_index, h1PrevL2,
+             bgcolor = color.new(#00ACC1, 90), border_color = color.new(#00ACC1, 50), border_width = 1)
+        box.set_text(_b, "H1 OB ✦")
+        box.set_text_color(_b, color.new(#00ACC1, 10))
+        box.set_text_size(_b, size.small)
+        array.push(h1ObBoxes, _b)
+    if h1ObBear
+        array.push(h1ObTops, h1PrevH2)
+        array.push(h1ObBots, h1PrevL2)
+        array.push(h1ObDirs, -1)
+        array.push(h1ObTouch, 0)
+        array.push(h1ObAway, false)
+        _b = box.new(bar_index - 2, h1PrevH2, bar_index, h1PrevL2,
+             bgcolor = color.new(#FF6D00, 90), border_color = color.new(#FF6D00, 50), border_width = 1)
+        box.set_text(_b, "H1 OB ✦")
+        box.set_text_color(_b, color.new(#FF6D00, 10))
+        box.set_text_size(_b, size.small)
+        array.push(h1ObBoxes, _b)
+    while array.size(h1ObBoxes) > i_maxBoxes
+        box.delete(array.get(h1ObBoxes, 0))
+        array.remove(h1ObBoxes, 0)
+        array.remove(h1ObTops, 0)
+        array.remove(h1ObBots, 0)
+        array.remove(h1ObDirs, 0)
+        array.remove(h1ObTouch, 0)
+        array.remove(h1ObAway, 0)
+
+if array.size(h1ObBoxes) > 0
+    _i = array.size(h1ObBoxes) - 1
+    while _i >= 0
+        _ot = array.get(h1ObTops, _i)
+        _ob = array.get(h1ObBots, _i)
+        _od = array.get(h1ObDirs, _i)
+        _tc = array.get(h1ObTouch, _i)
+        _aw = array.get(h1ObAway, _i)
+        _mit = (_od == 1 and close < _ob) or (_od == -1 and close > _ot)
+        if _mit
+            box.delete(array.get(h1ObBoxes, _i))
+            array.remove(h1ObBoxes, _i)
+            array.remove(h1ObTops, _i)
+            array.remove(h1ObBots, _i)
+            array.remove(h1ObDirs, _i)
+            array.remove(h1ObTouch, _i)
+            array.remove(h1ObAway, _i)
+        else
+            _inZone = (_od == 1 and low <= _ot and close > _ob) or (_od == -1 and high >= _ob and close < _ot)
+            if not _inZone and not _aw
+                array.set(h1ObAway, _i, true)
+                _aw := true
+            if _aw and _inZone
+                _wasIn = (_od == 1 and low[1] <= _ot and close[1] > _ob) or (_od == -1 and high[1] >= _ob and close[1] < _ot)
+                if not _wasIn
+                    _tc += 1
+                    array.set(h1ObTouch, _i, _tc)
+                    box.set_text(array.get(h1ObBoxes, _i), "H1 OB ×" + str.tostring(_tc))
+            box.set_right(array.get(h1ObBoxes, _i), bar_index + 5)
+        _i -= 1
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Session / Kill Zone Detection
+// ─────────────────────────────────────────────────────────────────────────────
+
+_hrNY = hour(time, "America/New_York")
+_asianActive   = i_sessAsian    and _hrNY >= 19 and _hrNY < 22
+_londonActive  = i_sessLondon   and _hrNY >= 2  and _hrNY < 5
+_nyActive      = i_sessNY       and _hrNY >= 7  and _hrNY < 10
+_ldnCloseActive = i_sessLdnClose and _hrNY >= 10 and _hrNY < 12
+
+bgcolor(i_showSessBg and (_isH1 or _isLTF) and _asianActive    ? color.new(#9C27B0, 92) : na, title = "Asian KZ")
+bgcolor(i_showSessBg and (_isH1 or _isLTF) and _londonActive   ? color.new(#2196F3, 92) : na, title = "London KZ")
+bgcolor(i_showSessBg and (_isH1 or _isLTF) and _nyActive       ? color.new(#FF9800, 92) : na, title = "New York KZ")
+bgcolor(i_showSessBg and (_isH1 or _isLTF) and _ldnCloseActive ? color.new(#4CAF50, 92) : na, title = "London Close KZ")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Previous Day High/Low (PDH/PDL)
+// ─────────────────────────────────────────────────────────────────────────────
+
+plot(i_showPDHL and (_isH1 or _isLTF) ? pdH : na, "PDH", color = color.new(#42A5F5, 30), linewidth = 1, style = plot.style_stepline_diamond)
+plot(i_showPDHL and (_isH1 or _isLTF) ? pdL : na, "PDL", color = color.new(#42A5F5, 30), linewidth = 1, style = plot.style_stepline_diamond)
+
+var label pdHLbl = na
+var label pdLLbl = na
+if barstate.islast and i_showPDHL and (_isH1 or _isLTF)
+    if not na(pdHLbl)
+        label.delete(pdHLbl)
+    if not na(pdLLbl)
+        label.delete(pdLLbl)
+    pdHLbl := label.new(bar_index + 3, pdH, "PDH", style = label.style_none, textcolor = color.new(#42A5F5, 20), size = size.small)
+    pdLLbl := label.new(bar_index + 3, pdL, "PDL", style = label.style_none, textcolor = color.new(#42A5F5, 20), size = size.small)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H1 EMA as Key Level (dynamic S/R on lower TF chart)
+// ─────────────────────────────────────────────────────────────────────────────
+
+plot(i_showH1EMA and _isLTF ? h1EmaF : na, "H1 EMA Fast", color = color.new(#FFEB3B, 40), linewidth = 1, style = plot.style_stepline)
+plot(i_showH1EMA and _isLTF ? h1EmaS : na, "H1 EMA Slow", color = color.new(#FF9800, 40), linewidth = 1, style = plot.style_stepline)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Micro Swing Tracking (chart TF — M5/M1)
+// ─────────────────────────────────────────────────────────────────────────────
+
+microPivH = ta.pivothigh(high, i_microSwingLen, i_microSwingLen)
+microPivL = ta.pivotlow(low, i_microSwingLen, i_microSwingLen)
+
+microAtr = ta.atr(14)
+microSwMinRange = not na(microAtr) ? microAtr * 0.5 : 0.0
+
+var float microLastSwHi = na
+var float microLastSwLo = na
+var int   microLastSwHiBar = na
+var int   microLastSwLoBar = na
+
+if not na(microPivH)
+    _range = not na(microLastSwLo) ? microPivH - microLastSwLo : microSwMinRange + 1
+    if _range >= microSwMinRange
+        microLastSwHi    := microPivH
+        microLastSwHiBar := bar_index - i_microSwingLen
+        if i_showMicroSwing and _isLTF
+            label.new(bar_index - i_microSwingLen, microPivH, "",
+                 style = label.style_circle, color = color.new(color.white, 70),
+                 size = size.auto, yloc = yloc.abovebar)
+if not na(microPivL)
+    _range = not na(microLastSwHi) ? microLastSwHi - microPivL : microSwMinRange + 1
+    if _range >= microSwMinRange
+        microLastSwLo    := microPivL
+        microLastSwLoBar := bar_index - i_microSwingLen
+        if i_showMicroSwing and _isLTF
+            label.new(bar_index - i_microSwingLen, microPivL, "",
+                 style = label.style_circle, color = color.new(color.white, 70),
+                 size = size.auto, yloc = yloc.belowbar)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BOS (Break of Structure) Detection — chart TF
+// ─────────────────────────────────────────────────────────────────────────────
+
+bosBull = not na(microLastSwHi) and close > microLastSwHi and close[1] <= microLastSwHi
+bosBear = not na(microLastSwLo) and close < microLastSwLo and close[1] >= microLastSwLo
+
+var int lastBosBar = na
+var int lastBosDir = 0
+if bosBull
+    lastBosBar := bar_index
+    lastBosDir := 1
+if bosBear
+    lastBosBar := bar_index
+    lastBosDir := -1
+
+if _isLTF and i_showBOS and bosBull and htfBias == 1
+    label.new(bar_index, low, "BOS",
+         style = label.style_label_up, color = color.new(#00E676, 20),
+         textcolor = color.white, size = size.tiny)
+if _isLTF and i_showBOS and bosBear and htfBias == -1
+    label.new(bar_index, high, "BOS",
+         style = label.style_label_down, color = color.new(#FF5252, 20),
+         textcolor = color.white, size = size.tiny)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Micro Sweep Detection — chart TF
+// ─────────────────────────────────────────────────────────────────────────────
+
+microSweepBull = not na(microLastSwLo) and low < microLastSwLo and close > microLastSwLo
+microSweepBear = not na(microLastSwHi) and high > microLastSwHi and close < microLastSwHi
+
+var int lastMicroSweepBar = na
+var int lastMicroSweepDir = 0
+if microSweepBull
+    lastMicroSweepBar := bar_index
+    lastMicroSweepDir := 1
+if microSweepBear
+    lastMicroSweepBar := bar_index
+    lastMicroSweepDir := -1
+
+plotshape(_isLTF and i_showSweep and microSweepBull, style = shape.diamond,
+     size = size.tiny, color = color.new(#00BCD4, 0), location = location.belowbar, title = "Sweep Bull")
+plotshape(_isLTF and i_showSweep and microSweepBear, style = shape.diamond,
+     size = size.tiny, color = color.new(#E040FB, 0), location = location.abovebar, title = "Sweep Bear")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Micro FVG Detection — chart TF
+// ─────────────────────────────────────────────────────────────────────────────
+
+var array<box>   mFvgBoxes = array.new<box>()
+var array<float> mFvgTops  = array.new<float>()
+var array<float> mFvgBots  = array.new<float>()
+var array<int>   mFvgDirs  = array.new<int>()
+
+mFvgBull = low > high[2]
+mFvgBear = high < low[2]
+
+if i_showMicroFVG and _isLTF
+    if mFvgBull
+        _top = low
+        _bot = high[2]
+        array.push(mFvgTops, _top)
+        array.push(mFvgBots, _bot)
+        array.push(mFvgDirs, 1)
+        _b = box.new(bar_index - 2, _top, bar_index, _bot,
+             bgcolor = color.new(#00E676, 88), border_color = color.new(#00E676, 60), border_width = 1)
+        box.set_text(_b, "FVG")
+        box.set_text_color(_b, color.new(#00E676, 40))
+        box.set_text_size(_b, size.tiny)
+        array.push(mFvgBoxes, _b)
+    if mFvgBear
+        _top = low[2]
+        _bot = high
+        array.push(mFvgTops, _top)
+        array.push(mFvgBots, _bot)
+        array.push(mFvgDirs, -1)
+        _b = box.new(bar_index - 2, _top, bar_index, _bot,
+             bgcolor = color.new(#FF5252, 88), border_color = color.new(#FF5252, 60), border_width = 1)
+        box.set_text(_b, "FVG")
+        box.set_text_color(_b, color.new(#FF5252, 40))
+        box.set_text_size(_b, size.tiny)
+        array.push(mFvgBoxes, _b)
+    while array.size(mFvgBoxes) > i_maxBoxes
+        box.delete(array.get(mFvgBoxes, 0))
+        array.remove(mFvgBoxes, 0)
+        array.remove(mFvgTops, 0)
+        array.remove(mFvgBots, 0)
+        array.remove(mFvgDirs, 0)
+
+if array.size(mFvgBoxes) > 0
+    _i = array.size(mFvgBoxes) - 1
+    while _i >= 0
+        _ft = array.get(mFvgTops, _i)
+        _fb = array.get(mFvgBots, _i)
+        _fd = array.get(mFvgDirs, _i)
+        _mit = (_fd == 1 and close < _fb) or (_fd == -1 and close > _ft)
+        if _mit
+            box.delete(array.get(mFvgBoxes, _i))
+            array.remove(mFvgBoxes, _i)
+            array.remove(mFvgTops, _i)
+            array.remove(mFvgBots, _i)
+            array.remove(mFvgDirs, _i)
+        else
+            box.set_right(array.get(mFvgBoxes, _i), bar_index + 3)
+        _i -= 1
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Micro Order Block Detection — chart TF
+// ─────────────────────────────────────────────────────────────────────────────
+
+var array<box>   mObBoxes = array.new<box>()
+var array<float> mObTops  = array.new<float>()
+var array<float> mObBots  = array.new<float>()
+var array<int>   mObDirs  = array.new<int>()
+
+bodyRange  = math.abs(close - open)
+avgBody    = ta.sma(bodyRange, i_momAvgLen)
+_prevBody  = math.abs(close[1] - open[1])
+
+mObBull = mFvgBull and not na(_prevBody) and not na(avgBody) and _prevBody > avgBody * i_momSuper
+     and close[2] < open[2]
+mObBear = mFvgBear and not na(_prevBody) and not na(avgBody) and _prevBody > avgBody * i_momSuper
+     and close[2] > open[2]
+
+if i_showMicroOB and _isLTF
+    if mObBull
+        array.push(mObTops, high[2])
+        array.push(mObBots, low[2])
+        array.push(mObDirs, 1)
+        _b = box.new(bar_index - 2, high[2], bar_index, low[2],
+             bgcolor = color.new(#26C6DA, 85), border_color = color.new(#26C6DA, 40), border_width = 1)
+        box.set_text(_b, "OB")
+        box.set_text_color(_b, color.new(#26C6DA, 20))
+        box.set_text_size(_b, size.tiny)
+        array.push(mObBoxes, _b)
+    if mObBear
+        array.push(mObTops, high[2])
+        array.push(mObBots, low[2])
+        array.push(mObDirs, -1)
+        _b = box.new(bar_index - 2, high[2], bar_index, low[2],
+             bgcolor = color.new(#FF6D00, 85), border_color = color.new(#FF6D00, 40), border_width = 1)
+        box.set_text(_b, "OB")
+        box.set_text_color(_b, color.new(#FF6D00, 20))
+        box.set_text_size(_b, size.tiny)
+        array.push(mObBoxes, _b)
+    while array.size(mObBoxes) > i_maxBoxes
+        box.delete(array.get(mObBoxes, 0))
+        array.remove(mObBoxes, 0)
+        array.remove(mObTops, 0)
+        array.remove(mObBots, 0)
+        array.remove(mObDirs, 0)
+
+if array.size(mObBoxes) > 0
+    _i = array.size(mObBoxes) - 1
+    while _i >= 0
+        _ot = array.get(mObTops, _i)
+        _ob = array.get(mObBots, _i)
+        _od = array.get(mObDirs, _i)
+        _mit = (_od == 1 and close < _ob) or (_od == -1 and close > _ot)
+        if _mit
+            box.delete(array.get(mObBoxes, _i))
+            array.remove(mObBoxes, _i)
+            array.remove(mObTops, _i)
+            array.remove(mObBots, _i)
+            array.remove(mObDirs, _i)
+        else
+            box.set_right(array.get(mObBoxes, _i), bar_index + 3)
+        _i -= 1
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EMA Reclaim Detection — chart TF
+// ─────────────────────────────────────────────────────────────────────────────
+
+emaReclaimBull = close > emaFast and close[1] <= emaFast and emaFast > emaSlow
+emaReclaimBear = close < emaFast and close[1] >= emaFast and emaFast < emaSlow
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Key Level Proximity Check (is price near an H1 POI?)
+// ─────────────────────────────────────────────────────────────────────────────
+
+_proxAtr = not na(microAtr) ? microAtr * 2.0 : 0.0
+
+_nearH1EmaF = not na(h1EmaF) and math.abs(close - h1EmaF) <= _proxAtr
+_nearH1EmaS = not na(h1EmaS) and math.abs(close - h1EmaS) <= _proxAtr
+_nearPDH    = not na(pdH) and math.abs(close - pdH) <= _proxAtr
+_nearPDL    = not na(pdL) and math.abs(close - pdL) <= _proxAtr
+_nearH1SwHi = not na(h1LastSwHi) and math.abs(close - h1LastSwHi) <= _proxAtr
+_nearH1SwLo = not na(h1LastSwLo) and math.abs(close - h1LastSwLo) <= _proxAtr
+
+_nearH1Fvg = false
+_nearFvgTouch = 0
+if array.size(h1FvgTops) > 0
+    for i = 0 to array.size(h1FvgTops) - 1
+        _ft = array.get(h1FvgTops, i)
+        _fb = array.get(h1FvgBots, i)
+        if close >= _fb - _proxAtr and close <= _ft + _proxAtr
+            _nearH1Fvg := true
+            _nearFvgTouch := array.get(h1FvgTouch, i)
+            break
+
+_nearH1Ob = false
+_nearObTouch = 0
+if array.size(h1ObTops) > 0
+    for i = 0 to array.size(h1ObTops) - 1
+        _ot = array.get(h1ObTops, i)
+        _ob = array.get(h1ObBots, i)
+        if close >= _ob - _proxAtr and close <= _ot + _proxAtr
+            _nearH1Ob := true
+            _nearObTouch := array.get(h1ObTouch, i)
+            break
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Hard Gate — must ALL pass before scoring
+// ─────────────────────────────────────────────────────────────────────────────
+
+_kzOk = _londonActive or _nyActive
+_gatePass = _isLTF and htfBias != 0 and _kzOk
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Weighted Scoring
+// ─────────────────────────────────────────────────────────────────────────────
+
+_score = 0
+_parts = ""
+
+if _nearH1Ob
+    _score += i_wOB
+    _parts += _nearObTouch == 0 ? "OB✦ " : "OB×" + str.tostring(_nearObTouch) + " "
+if _nearH1Fvg
+    _score += i_wFVG
+    _parts += _nearFvgTouch == 0 ? "FVG✦ " : "FVG×" + str.tostring(_nearFvgTouch) + " "
+if _nearH1SwHi or _nearH1SwLo
+    _score += i_wSwing
+    _parts += "SW "
+if _nearPDH or _nearPDL
+    _score += i_wPDHL
+    _parts += _nearPDH ? "PDH " : "PDL "
+if _nearH1EmaF or _nearH1EmaS
+    _score += i_wH1EMA
+    _parts += "EMA "
+if bosBull or bosBear
+    _score += i_wBOS
+    _parts += "BOS "
+
+_recentSweep = not na(lastMicroSweepBar) and (bar_index - lastMicroSweepBar) <= 5
+if _recentSweep or microSweepBull or microSweepBear
+    _score += i_wSweep
+    _parts += "SWP "
+if emaReclaimBull or emaReclaimBear
+    _score += i_wReclaim
+    _parts += "RCL "
+
+_isPremium = _score >= i_premScore
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Entry Signal — hard gates + score threshold + micro trigger
+// ─────────────────────────────────────────────────────────────────────────────
+
+_microBull = bosBull or (microSweepBull and emaReclaimBull)
+_microBear = bosBear or (microSweepBear and emaReclaimBear)
+
+_entryBull = _gatePass and i_showEntry and htfBias == 1 and _score >= i_minScore and _microBull
+_entryBear = _gatePass and i_showEntry and htfBias == -1 and _score >= i_minScore and _microBear
+
+_premBull = _entryBull and _isPremium
+_premBear = _entryBear and _isPremium
+_normBull = _entryBull and not _isPremium
+_normBear = _entryBear and not _isPremium
+
+plotshape(_premBull, style = shape.triangleup, size = size.large,
+     color = color.new(#00E676, 0), location = location.belowbar, title = "Premium Entry Bull")
+plotshape(_premBear, style = shape.triangledown, size = size.large,
+     color = color.new(#FF5252, 0), location = location.abovebar, title = "Premium Entry Bear")
+plotshape(_normBull, style = shape.triangleup, size = size.normal,
+     color = color.new(#00E676, 30), location = location.belowbar, title = "Entry Bull")
+plotshape(_normBear, style = shape.triangledown, size = size.normal,
+     color = color.new(#FF5252, 30), location = location.abovebar, title = "Entry Bear")
+
+if _entryBull
+    _lbl = "[" + str.tostring(_score) + "] " + str.trim(_parts)
+    _col = _isPremium ? color.new(#00E676, 0) : color.new(#00E676, 30)
+    label.new(bar_index, low, _lbl, style = label.style_label_up,
+         color = _col, textcolor = color.white, size = _isPremium ? size.small : size.tiny)
+if _entryBear
+    _lbl = "[" + str.tostring(_score) + "] " + str.trim(_parts)
+    _col = _isPremium ? color.new(#FF5252, 0) : color.new(#FF5252, 30)
+    label.new(bar_index, high, _lbl, style = label.style_label_down,
+         color = _col, textcolor = color.white, size = _isPremium ? size.small : size.tiny)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bar Coloring — Momentum + Key Level
+// ─────────────────────────────────────────────────────────────────────────────
+
+_superBody  = not na(bodyRange) and not na(avgBody) and bodyRange > avgBody * i_momSuper
+_aboveAvg   = not na(bodyRange) and not na(avgBody) and bodyRange > avgBody
+_isBull     = close > open
+
+_momCol = (not i_showMomBar or not _isLTF) ? na :
+     _superBody and _isBull  ? color.new(#1B5E20, 0) :
+     _superBody and not _isBull ? color.new(#B71C1C, 0) :
+     _aboveAvg and _isBull  ? color.new(#66BB6A, 0) :
+     _aboveAvg and not _isBull ? color.new(#EF5350, 0) : na
+
+barcolor(_momCol, title = "Momentum")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HTF Bias Background (subtle)
+// ─────────────────────────────────────────────────────────────────────────────
+
+bgcolor(htfBias == 1 ? color.new(color.green, 95) : htfBias == -1 ? color.new(color.red, 95) : na, title = "HTF Bias")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Alert System (3-Tier) — based on score thresholds
+// ─────────────────────────────────────────────────────────────────────────────
+
+_watchBull = _gatePass and htfBias == 1 and _score >= 3 and _score < i_minScore and _microBull
+_watchBear = _gatePass and htfBias == -1 and _score >= 3 and _score < i_minScore and _microBear
+
+// Tier 1: Watch — score building but under threshold
+alertcondition(_watchBull, title = "T1 Watch Bull",
+     message = '{"tier":1,"type":"WATCH","dir":"BULL","pair":"{{ticker}}","tf":"{{interval}}","price":"{{close}}","action":"Score สะสม แต่ยังไม่ถึงเกณฑ์ — เตรียมตัว"}')
+alertcondition(_watchBear, title = "T1 Watch Bear",
+     message = '{"tier":1,"type":"WATCH","dir":"BEAR","pair":"{{ticker}}","tf":"{{interval}}","price":"{{close}}","action":"Score สะสม แต่ยังไม่ถึงเกณฑ์ — เตรียมตัว"}')
+
+// Tier 2: Entry — score meets threshold
+alertcondition(_normBull, title = "T2 Entry Bull",
+     message = '{"tier":2,"type":"ENTRY","dir":"BULL","pair":"{{ticker}}","tf":"{{interval}}","price":"{{close}}","action":"Entry Long — score ถึงเกณฑ์ + KZ + micro trigger ครบ"}')
+alertcondition(_normBear, title = "T2 Entry Bear",
+     message = '{"tier":2,"type":"ENTRY","dir":"BEAR","pair":"{{ticker}}","tf":"{{interval}}","price":"{{close}}","action":"Entry Short — score ถึงเกณฑ์ + KZ + micro trigger ครบ"}')
+
+// Tier 3: Premium Entry — score meets premium threshold
+alertcondition(_premBull, title = "T3 Premium Bull",
+     message = '{"tier":3,"type":"PREMIUM","dir":"BULL","pair":"{{ticker}}","tf":"{{interval}}","price":"{{close}}","action":"Premium Entry Long — score สูง setup คุณภาพ"}')
+alertcondition(_premBear, title = "T3 Premium Bear",
+     message = '{"tier":3,"type":"PREMIUM","dir":"BEAR","pair":"{{ticker}}","tf":"{{interval}}","price":"{{close}}","action":"Premium Entry Short — score สูง setup คุณภาพ"}')

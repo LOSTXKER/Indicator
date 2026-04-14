@@ -134,10 +134,8 @@ type TFEngine
     int     prevOvsLoT = na
     float   prevOvbHi = na
     int     trend = 0
-    bool    sbDrawn = false
     bool    canDrawUp = true
     bool    canDrawDn = true
-    bool    dnSbDrawn = false
     string  tfTag = ""
     color   col
     bool    showTarget = true
@@ -411,9 +409,8 @@ method tick(TFEngine this, float _h, float _l, float _c, float _k, int _t) =>
             _sLoT = this.ovsLoT
             _isHL = not na(this.prevOvsLo) and _sLo > this.prevOvsLo
             _isLL = not na(this.prevOvsLo) and _sLo < this.prevOvsLo
-            _fT  = (_isHL and not this.sbDrawn) ? FT_SOMBOON : FT_HAK_KHO
+            _fT  = _isHL ? FT_SOMBOON : FT_HAK_KHO
             _fNm = _fT == FT_SOMBOON ? "SB" : "HK"
-            this.sbDrawn := true
             if not na(this.prevOvsLo)
                 if this.trend == 0 and _isHL
                     this.trend := 2
@@ -477,9 +474,8 @@ method tick(TFEngine this, float _h, float _l, float _c, float _k, int _t) =>
             if expirePendingFibos(this.targetSets, 1) > 0
                 this.canDrawUp := true
             _isLH2 = not na(this.prevOvbHi) and _fHi < this.prevOvbHi
-            _dnFT  = _isLH2 and not this.dnSbDrawn ? FT_SOMBOON : FT_HAK_KHO
+            _dnFT  = _isLH2 ? FT_SOMBOON : FT_HAK_KHO
             _dnFNm = _dnFT == FT_SOMBOON ? "SB" : "HK"
-            this.dnSbDrawn := true
             this.prevOvbHi  := _fHi
             this.confOvbHi  := _fHi
             this.confOvbHiT := _fHiT
