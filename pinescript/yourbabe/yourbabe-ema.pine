@@ -1,0 +1,243 @@
+// Yourbabe's EMA 1.3.3
+// Reverse-engineered from screenshots + class notes
+// EMA overlay with Sessions, AOF, HTF Background, Server Close Mark
+
+//@version=6
+indicator("Yourbabe's EMA", shorttitle="YB EMA 1.3.3", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)
+
+// ============================================================================
+// EMA SETTING
+// ============================================================================
+string GRP_EMA = "EMA SETTING"
+bool emaHTFBgToggle = input.bool(true, "EMA HTF Background Toggle", group=GRP_EMA, tooltip="แสดงพื้นหลังตาม EMA HTF alignment\nเขียว = Bullish (8>14>60)\nม่วง = Bearish (8<14<60)")
+
+// ============================================================================
+// AOF (Area of Flow)
+// ============================================================================
+string GRP_AOF = "AOF"
+bool   aofToggle     = input.bool(true, "AOF Range time (H)", group=GRP_AOF)
+int    aofRangeHours = input.int(11, "Range Hours", minval=1, maxval=24, group=GRP_AOF)
+int    aofShift      = input.int(-5, "Shift", minval=-50, maxval=50, group=GRP_AOF)
+color  aofColor      = input.color(color.new(color.white, 85), "Color", group=GRP_AOF)
+
+// ============================================================================
+// เซสชั่น (Sessions)
+// ============================================================================
+string GRP_SESS = "เซสชั่น"
+int    utcOffset     = input.int(7, "Time zone (UTC +/-)", minval=-12, maxval=14, group=GRP_SESS)
+
+bool   tokyoOn       = input.bool(true, "Tokyo", inline="tk", group=GRP_SESS)
+int    tkStartH      = input.int(5, "Start H", minval=0, maxval=23, inline="tk_t", group=GRP_SESS)
+int    tkStartM      = input.int(0, ":", minval=0, maxval=59, inline="tk_t", group=GRP_SESS)
+int    tkEndH        = input.int(14, "End H", minval=0, maxval=23, inline="tk_t2", group=GRP_SESS)
+int    tkEndM        = input.int(0, ":", minval=0, maxval=59, inline="tk_t2", group=GRP_SESS)
+color  tokyoColor    = input.color(color.new(#1a237e, 92), "Color", inline="tk", group=GRP_SESS)
+
+bool   londonOn      = input.bool(true, "London", inline="ld", group=GRP_SESS)
+int    ldStartH      = input.int(14, "Start H", minval=0, maxval=23, inline="ld_t", group=GRP_SESS)
+int    ldStartM      = input.int(0, ":", minval=0, maxval=59, inline="ld_t", group=GRP_SESS)
+int    ldEndH        = input.int(0, "End H", minval=0, maxval=23, inline="ld_t2", group=GRP_SESS)
+int    ldEndM        = input.int(0, ":", minval=0, maxval=59, inline="ld_t2", group=GRP_SESS)
+color  londonColor   = input.color(color.new(#e65100, 92), "Color", inline="ld", group=GRP_SESS)
+
+bool   nyOn          = input.bool(true, "Newyork", inline="ny", group=GRP_SESS)
+int    nyStartH      = input.int(19, "Start H", minval=0, maxval=23, inline="ny_t", group=GRP_SESS)
+int    nyStartM      = input.int(0, ":", minval=0, maxval=59, inline="ny_t", group=GRP_SESS)
+int    nyEndH        = input.int(5, "End H", minval=0, maxval=23, inline="ny_t2", group=GRP_SESS)
+int    nyEndM        = input.int(0, ":", minval=0, maxval=59, inline="ny_t2", group=GRP_SESS)
+color  nyColor       = input.color(color.new(#b71c1c, 92), "Color", inline="ny", group=GRP_SESS)
+
+bool   sessLabelOn   = input.bool(true, "Session Label", inline="slbl", group=GRP_SESS)
+color  sessLabelClr  = input.color(color.white, "Color", inline="slbl", group=GRP_SESS)
+
+// ============================================================================
+// SERVER CLOSE MARK
+// ============================================================================
+string GRP_SRV = "SERVER CLOSE MARK"
+bool   srvMarkOn     = input.bool(true, "Mark (Toggle)", group=GRP_SRV)
+bool   dstOn         = input.bool(true, "Day light saving", group=GRP_SRV)
+int    barBack       = input.int(500, "Bar back", minval=1, group=GRP_SRV, tooltip="จำนวนแท่งที่แสดง Server Close marks ย้อนหลัง")
+
+// ============================================================================
+// HTF Auto-detect
+// ============================================================================
+htfTimeframe = switch timeframe.period
+    "1"   => "5"
+    "3"   => "15"
+    "5"   => "15"
+    "15"  => "60"
+    "30"  => "60"
+    "60"  => "240"
+    "120" => "240"
+    "240" => "D"
+    "D"   => "W"
+    => "D"
+
+// ============================================================================
+// EMA Calculations
+// ============================================================================
+ema8  = ta.ema(close, 8)
+ema14 = ta.ema(close, 14)
+ema60 = ta.ema(close, 60)
+
+htfEma8  = request.security(syminfo.tickerid, htfTimeframe, ta.ema(close, 8),  barmerge.gaps_off, barmerge.lookahead_on)
+htfEma14 = request.security(syminfo.tickerid, htfTimeframe, ta.ema(close, 14), barmerge.gaps_off, barmerge.lookahead_on)
+htfEma60 = request.security(syminfo.tickerid, htfTimeframe, ta.ema(close, 60), barmerge.gaps_off, barmerge.lookahead_on)
+
+// ============================================================================
+// EMA Plots
+// ============================================================================
+p_htf8  = plot(htfEma8,  "EMA 8 (HTF)",  color=color.new(#ff6d00, 0), linewidth=1)
+p_htf14 = plot(htfEma14, "EMA 14 (HTF)", color=color.new(#ffffff, 0), linewidth=2)
+p_htf60 = plot(htfEma60, "EMA 60 (HTF)", color=color.new(#00bcd4, 0), linewidth=2)
+
+p_ema8  = plot(ema8,  "EMA 8 (Current TF)",  color=color.new(#ff6d00, 60), linewidth=1, style=plot.style_line)
+p_ema14 = plot(ema14, "EMA 14 (Current TF)", color=color.new(#ffffff, 60), linewidth=1, style=plot.style_line)
+p_ema60 = plot(ema60, "EMA 60 (Current TF)", color=color.new(#00bcd4, 60), linewidth=1, style=plot.style_line)
+
+// ============================================================================
+// EMA Cloud / Ribbon Fill
+// ============================================================================
+// Current TF: fill between EMA 8-14 (momentum cloud)
+bool currBull_8_14 = ema8 >= ema14
+color cloud_8_14   = currBull_8_14 ? color.new(#4caf50, 80) : color.new(#f44336, 80)
+fill(p_ema8, p_ema14, color=cloud_8_14, title="EMA 8-14 Cloud")
+
+// Current TF: fill between EMA 14-60 (trend cloud)
+bool currBull_14_60 = ema14 >= ema60
+color cloud_14_60   = currBull_14_60 ? color.new(#4caf50, 85) : color.new(#9c27b0, 85)
+fill(p_ema14, p_ema60, color=cloud_14_60, title="EMA 14-60 Cloud")
+
+// HTF: fill between HTF EMA 8-14
+bool htfBull_8_14 = htfEma8 >= htfEma14
+color htfCloud_8_14 = htfBull_8_14 ? color.new(#4caf50, 78) : color.new(#f44336, 78)
+fill(p_htf8, p_htf14, color=htfCloud_8_14, title="HTF EMA 8-14 Cloud")
+
+// HTF: fill between HTF EMA 14-60
+bool htfBull_14_60 = htfEma14 >= htfEma60
+color htfCloud_14_60 = htfBull_14_60 ? color.new(#4caf50, 83) : color.new(#9c27b0, 83)
+fill(p_htf14, p_htf60, color=htfCloud_14_60, title="HTF EMA 14-60 Cloud")
+
+// ============================================================================
+// HTF EMA Background
+// ============================================================================
+bool bullHTF = htfEma8 > htfEma14 and htfEma14 > htfEma60
+bool bearHTF = htfEma8 < htfEma14 and htfEma14 < htfEma60
+
+bgcolor(emaHTFBgToggle ? (bullHTF ? color.new(#4caf50, 94) : bearHTF ? color.new(#9c27b0, 94) : na) : na, title="HTF EMA Background")
+
+// ============================================================================
+// Session helpers
+// ============================================================================
+formatSession(int startH, int startM, int endH, int endM) =>
+    str.format("{0,number,00}{1,number,00}-{2,number,00}{3,number,00}", startH, startM, endH, endM)
+
+tzString() =>
+    utcOffset >= 0 ? str.format("UTC+{0}", utcOffset) : str.format("UTC{0}", utcOffset)
+
+isInSession(int startH, int startM, int endH, int endM) =>
+    sessStr = formatSession(startH, startM, endH, endM)
+    not na(time(timeframe.period, sessStr, tzString()))
+
+sessionStart(int startH, int startM, int endH, int endM) =>
+    inSess = isInSession(startH, startM, endH, endM)
+    inSess and not inSess[1]
+
+sessionEnd(int startH, int startM, int endH, int endM) =>
+    inSess = isInSession(startH, startM, endH, endM)
+    not inSess and inSess[1]
+
+// ============================================================================
+// Session Box Drawing
+// ============================================================================
+var box tkBox = na
+var box ldBox = na
+var box nyBox = na
+
+var float tkHigh = na
+var float tkLow  = na
+var float ldHigh = na
+var float ldLow  = na
+var float nyHigh = na
+var float nyLow  = na
+
+// Tokyo
+tkInSess = tokyoOn ? isInSession(tkStartH, tkStartM, tkEndH, tkEndM) : false
+if tokyoOn
+    if sessionStart(tkStartH, tkStartM, tkEndH, tkEndM)
+        tkHigh := high
+        tkLow  := low
+        tkBox  := box.new(bar_index, high, bar_index, low, border_color=color.new(tokyoColor, 60), bgcolor=tokyoColor)
+        if sessLabelOn
+            label.new(bar_index, high, "Tokyo", color=color.new(color.black, 100), textcolor=sessLabelClr, style=label.style_label_down, size=size.small)
+    if tkInSess
+        tkHigh := math.max(tkHigh, high)
+        tkLow  := math.min(tkLow, low)
+        if not na(tkBox)
+            box.set_right(tkBox, bar_index)
+            box.set_top(tkBox, tkHigh)
+            box.set_bottom(tkBox, tkLow)
+
+// London
+ldInSess = londonOn ? isInSession(ldStartH, ldStartM, ldEndH, ldEndM) : false
+if londonOn
+    if sessionStart(ldStartH, ldStartM, ldEndH, ldEndM)
+        ldHigh := high
+        ldLow  := low
+        ldBox  := box.new(bar_index, high, bar_index, low, border_color=color.new(londonColor, 60), bgcolor=londonColor)
+        if sessLabelOn
+            label.new(bar_index, high, "London", color=color.new(color.black, 100), textcolor=sessLabelClr, style=label.style_label_down, size=size.small)
+    if ldInSess
+        ldHigh := math.max(ldHigh, high)
+        ldLow  := math.min(ldLow, low)
+        if not na(ldBox)
+            box.set_right(ldBox, bar_index)
+            box.set_top(ldBox, ldHigh)
+            box.set_bottom(ldBox, ldLow)
+
+// New York
+nyInSess = nyOn ? isInSession(nyStartH, nyStartM, nyEndH, nyEndM) : false
+if nyOn
+    if sessionStart(nyStartH, nyStartM, nyEndH, nyEndM)
+        nyHigh := high
+        nyLow  := low
+        nyBox  := box.new(bar_index, high, bar_index, low, border_color=color.new(nyColor, 60), bgcolor=nyColor)
+        if sessLabelOn
+            label.new(bar_index, high, "New York", color=color.new(color.black, 100), textcolor=sessLabelClr, style=label.style_label_down, size=size.small)
+    if nyInSess
+        nyHigh := math.max(nyHigh, high)
+        nyLow  := math.min(nyLow, low)
+        if not na(nyBox)
+            box.set_right(nyBox, bar_index)
+            box.set_top(nyBox, nyHigh)
+            box.set_bottom(nyBox, nyLow)
+
+// ============================================================================
+// AOF (Area of Flow) — High-Low range box over N hours
+// ============================================================================
+if aofToggle and barstate.islast
+    int barsInRange = math.round(aofRangeHours * 60 / timeframe.in_seconds() * 60)
+    int startBar    = bar_index - barsInRange + aofShift
+    int endBar      = bar_index + aofShift
+
+    float aofHigh = ta.highest(high, barsInRange)
+    float aofLow  = ta.lowest(low, barsInRange)
+
+    var box aofBox = na
+    if not na(aofBox)
+        box.delete(aofBox)
+    aofBox := box.new(startBar, aofHigh, endBar, aofLow, border_color=color.new(aofColor, 50), bgcolor=aofColor, border_width=1, border_style=line.style_dashed)
+
+// ============================================================================
+// Server Close Mark
+// ============================================================================
+if srvMarkOn
+    int closeHour = dstOn ? 17 : 16
+    int localCloseHour = (closeHour + utcOffset + 24) % 24
+
+    h = hour(time, tzString())
+    m = minute(time, tzString())
+
+    isCloseBar = h == localCloseHour and m == 0
+    if isCloseBar and bar_index > (last_bar_index - barBack)
+        line.new(bar_index, high, bar_index, low, extend=extend.both, color=color.new(color.gray, 50), style=line.style_dotted, width=1)

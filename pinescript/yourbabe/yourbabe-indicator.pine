@@ -1,0 +1,132 @@
+// YOUR BABEs Indicator 2.2
+// Reverse-engineered from screenshots + class notes
+// TDI-based oscillator with Sentiment lines, Mountain fills, M15 cross-TF
+
+//@version=6
+indicator("YOUR BABEs Indicator", shorttitle="YB Indicator 2.2", format=format.price, precision=1, timeframe="", timeframe_gaps=true)
+
+// ============================================================================
+// INPUTS
+// ============================================================================
+string GRP_MAIN = "MAIN SETTINGS"
+bool   sentBgToggle  = input.bool(true, "Sentiment Background Toggle", group=GRP_MAIN, tooltip="พื้นหลังตาม Sentiment direction")
+bool   oldVersion    = input.bool(true, "Old version Toggle", group=GRP_MAIN)
+string posSig        = input.string("Top", "Position Signal", options=["Top", "Bottom"], group=GRP_MAIN)
+
+string GRP_TDI = "TDI PARAMETERS"
+int    rsiPeriod     = input.int(13, "RSI Period", minval=1, group=GRP_TDI)
+int    bandLength    = input.int(31, "Band Length", minval=1, group=GRP_TDI)
+float  bandMult      = input.float(1.6185, "Band Multiplier", step=0.0001, group=GRP_TDI)
+int    fastMAPeriod  = input.int(1, "Fast MA Period (Price)", minval=1, group=GRP_TDI)
+int    slowMAPeriod  = input.int(9, "Slow MA Period (Sentiment 1)", minval=1, group=GRP_TDI)
+int    sent2Period   = input.int(14, "Sentiment 2 Period", minval=1, group=GRP_TDI)
+int    sent3Period   = input.int(21, "Sentiment 3 Period", minval=1, group=GRP_TDI)
+
+string GRP_M15 = "M15 CROSS-TIMEFRAME"
+string m15TF         = input.timeframe("15", "Higher Timeframe", group=GRP_M15)
+
+// ============================================================================
+// TDI Calculation — Current TF
+// ============================================================================
+rsiVal    = ta.rsi(close, rsiPeriod)
+
+bbMa      = ta.sma(rsiVal, bandLength)
+bbStd     = ta.stdev(rsiVal, bandLength)
+upperBand = bbMa + bandMult * bbStd
+lowerBand = bbMa - bandMult * bbStd
+middleBand = (upperBand + lowerBand) / 2.0
+
+priceLine  = ta.sma(rsiVal, fastMAPeriod)
+sentiment1 = ta.sma(rsiVal, slowMAPeriod)
+sentiment2 = ta.sma(rsiVal, sent2Period)
+sentiment3 = ta.sma(rsiVal, sent3Period)
+
+// ============================================================================
+// TDI Calculation — M15
+// ============================================================================
+rsiM15       = request.security(syminfo.tickerid, m15TF, ta.rsi(close, rsiPeriod), barmerge.gaps_off, barmerge.lookahead_on)
+
+bbMaM15      = request.security(syminfo.tickerid, m15TF, ta.sma(ta.rsi(close, rsiPeriod), bandLength), barmerge.gaps_off, barmerge.lookahead_on)
+bbStdM15     = request.security(syminfo.tickerid, m15TF, ta.stdev(ta.rsi(close, rsiPeriod), bandLength), barmerge.gaps_off, barmerge.lookahead_on)
+
+priceM15     = request.security(syminfo.tickerid, m15TF, ta.sma(ta.rsi(close, rsiPeriod), fastMAPeriod), barmerge.gaps_off, barmerge.lookahead_on)
+sentimentM15 = request.security(syminfo.tickerid, m15TF, ta.sma(ta.rsi(close, rsiPeriod), slowMAPeriod), barmerge.gaps_off, barmerge.lookahead_on)
+
+// ============================================================================
+// Mountain Fills — using plotcandle for "mountain" appearance
+// ============================================================================
+// Mountain CG (Center of Gravity) = area between Price and Sentiment1
+float mtnOpen  = math.min(priceLine, sentiment1)
+float mtnClose = math.max(priceLine, sentiment1)
+color mtnColor  = priceLine >= sentiment1 ? color.new(#4caf50, 30) : color.new(#f44336, 30)
+color mtnBorder = priceLine >= sentiment1 ? color.new(#4caf50, 60) : color.new(#f44336, 60)
+
+plotcandle(mtnOpen, mtnClose, mtnOpen, mtnClose, title="Mountain CG candle", color=mtnColor, wickcolor=color.new(color.black, 100), bordercolor=mtnBorder)
+
+// Mountain Surface Outside = wider area (Price to Sentiment2)
+float mtnOutOpen  = math.min(priceLine, sentiment2)
+float mtnOutClose = math.max(priceLine, sentiment2)
+color mtnOutColor = priceLine >= sentiment2 ? color.new(#26a69a, 65) : color.new(#ef5350, 65)
+
+plotcandle(mtnOutOpen, mtnOutClose, mtnOutOpen, mtnOutClose, title="Mountain Surface Outside candle", color=mtnOutColor, wickcolor=color.new(color.black, 100), bordercolor=color.new(color.black, 100))
+
+// Mountain Surface Inside = area between Sentiment1 and Sentiment2 (amber/orange core)
+float mtnInOpen  = math.min(sentiment1, sentiment2)
+float mtnInClose = math.max(sentiment1, sentiment2)
+color mtnInColor = sentiment1 >= sentiment2 ? color.new(#ff9800, 45) : color.new(#e65100, 45)
+
+plotcandle(mtnInOpen, mtnInClose, mtnInOpen, mtnInClose, title="Mountain Surface inside candle", color=mtnInColor, wickcolor=color.new(color.black, 100), bordercolor=color.new(#ff9800, 70))
+
+// Mountain Surface M15
+float mtnM15Open  = math.min(priceM15, sentimentM15)
+float mtnM15Close = math.max(priceM15, sentimentM15)
+color mtnM15Color = priceM15 >= sentimentM15 ? color.new(#26a69a, 75) : color.new(#ef5350, 75)
+
+plotcandle(mtnM15Open, mtnM15Close, mtnM15Open, mtnM15Close, title="Mountain Surface candle (M15)", color=mtnM15Color, wickcolor=color.new(color.black, 100), bordercolor=color.new(color.black, 100))
+
+// ============================================================================
+// Line Plots
+// ============================================================================
+plot(middleBand,  "Middle of Bands", color=#ff9800, linewidth=2)
+plot(sentiment1,  "Sentiment 1",     color=#008000, linewidth=2)
+plot(sentiment2,  "Sentiment 2",     color=#e91e63, linewidth=1)
+plot(sentiment3,  "Sentiment 3",     color=#9c27b0, linewidth=1)
+plot(priceLine,   "ราคา",             color=#4caf50, linewidth=2)
+
+plot(sentimentM15, "Sentiment (M15)", color=color.new(#ab47bc, 0), linewidth=2, style=plot.style_line)
+plot(priceM15,     "Price (M15)",     color=color.new(#4caf50, 30), linewidth=1, style=plot.style_line)
+
+// Bands (subtle)
+p_up = plot(upperBand, "Upper Band", color=color.new(#2196f3, 70), linewidth=1)
+p_dn = plot(lowerBand, "Lower Band", color=color.new(#2196f3, 70), linewidth=1)
+fill(p_up, p_dn, color=color.new(#2196f3, 93), title="Band Fill")
+
+// Reference lines
+hline(80, "Overbought",  color=color.new(color.gray, 60), linestyle=hline.style_dotted)
+hline(50, "Midline",     color=color.new(color.gray, 40), linestyle=hline.style_solid)
+hline(20, "Oversold",    color=color.new(color.gray, 60), linestyle=hline.style_dotted)
+
+// ============================================================================
+// Sentiment Background
+// ============================================================================
+bool sentBull = priceLine > sentiment1 and sentiment1 > middleBand
+bool sentBear = priceLine < sentiment1 and sentiment1 < middleBand
+
+bgcolor(sentBgToggle ? (sentBull ? color.new(#4caf50, 90) : sentBear ? color.new(#f44336, 90) : na) : na, title="Sentiment Background")
+
+// ============================================================================
+// Signal Shapes — Buy/Sell on oscillator
+// ============================================================================
+bool priceCrossSentUp   = ta.crossover(priceLine, sentiment1)
+bool priceCrossSentDown = ta.crossunder(priceLine, sentiment1)
+
+bool buySig  = priceCrossSentUp and sentiment1 > middleBand
+bool sellSig = priceCrossSentDown and sentiment1 < middleBand
+
+float sigLevel = posSig == "Top" ? 85.0 : 15.0
+
+plotshape(buySig,  title="สัญญาณ Buy",  style=shape.triangleup,   location=location.absolute, color=#4caf50, size=size.small, text="", offset=0)
+plotshape(sellSig, title="สัญญาณ Sell", style=shape.triangledown, location=location.absolute, color=#f44336, size=size.small, text="", offset=0)
+
+// Shape for horizontal marker
+plotshape(buySig or sellSig, title="รูปร่าง", style=shape.diamond, location=location.absolute, color=buySig ? #4caf50 : sellSig ? #f44336 : na, size=size.tiny)

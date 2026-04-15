@@ -3,7 +3,7 @@
 // © Auto Fibo from Stochastic OVS/OVB
 
 //@version=6
-indicator("Auto Fibo Stoch", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("auto-fibo-pullback V.3", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Inputs
@@ -12,17 +12,17 @@ indicator("Auto Fibo Stoch", overlay = true, max_lines_count = 500, max_labels_c
 // ── 🎯 Fibo เป้า (Target) ──────────────────────────────────────────────────
 grpTarget  = "🎯 Fibo เป้า (Target)"
 i_dayTarget  = input.bool(false, "Day",  inline = "tDay", group = grpTarget)
-i_dayPending = input.bool(true,  "Pending", inline = "tDay", group = grpTarget)
-i_h4Target   = input.bool(false, "H4",   inline = "tH4",  group = grpTarget)
+i_dayPending = input.bool(false, "Pending", inline = "tDay", group = grpTarget)
+i_h4Target   = input.bool(true,  "H4",   inline = "tH4",  group = grpTarget)
 i_h4Pending  = input.bool(true,  "Pending", inline = "tH4",  group = grpTarget)
-i_h1Target   = input.bool(false, "H1",   inline = "tH1",  group = grpTarget)
+i_h1Target   = input.bool(true,  "H1",   inline = "tH1",  group = grpTarget)
 i_h1Pending  = input.bool(true,  "Pending", inline = "tH1",  group = grpTarget)
-i_m15Target  = input.bool(true,  "M15",  inline = "tM15", group = grpTarget)
-i_m15Pending = input.bool(true,  "Pending", inline = "tM15", group = grpTarget)
+i_m15Target  = input.bool(false, "M15",  inline = "tM15", group = grpTarget)
+i_m15Pending = input.bool(false, "Pending", inline = "tM15", group = grpTarget)
 i_m5Target   = input.bool(false, "M5",   inline = "tM5",  group = grpTarget)
-i_m5Pending  = input.bool(true,  "Pending", inline = "tM5",  group = grpTarget)
+i_m5Pending  = input.bool(false, "Pending", inline = "tM5",  group = grpTarget)
 i_m1Target   = input.bool(false, "M1",   inline = "tM1",  group = grpTarget)
-i_m1Pending  = input.bool(true,  "Pending", inline = "tM1",  group = grpTarget)
+i_m1Pending  = input.bool(false, "Pending", inline = "tM1",  group = grpTarget)
 i_showHK     = input.bool(true, "แสดง HK",  inline = "tType", group = grpTarget)
 i_showSB     = input.bool(true, "แสดง SB",  inline = "tType", group = grpTarget)
 i_maxSets    = input.int(5, "ชุดสูงสุด (ต่อทิศทาง)", minval = 1, maxval = 5, group = grpTarget)
@@ -32,7 +32,7 @@ grpEntry   = "🔰 Fibo จุดเข้า (Entry)"
 i_dayEntry   = input.bool(false, "Day",  group = grpEntry)
 i_h4Entry    = input.bool(false, "H4",   group = grpEntry)
 i_h1Entry    = input.bool(false, "H1",   group = grpEntry)
-i_m15Entry   = input.bool(true,  "M15",  group = grpEntry)
+i_m15Entry   = input.bool(false, "M15",  group = grpEntry)
 i_m5Entry    = input.bool(false, "M5",   group = grpEntry)
 i_m1Entry    = input.bool(false, "M1",   group = grpEntry)
 i_maxSupSets = input.int(5, "ชุดสูงสุด (ต่อทิศทาง)", minval = 1, maxval = 5, group = grpEntry)
@@ -57,10 +57,12 @@ i_emaFast  = input.int(14, "Fast EMA",  minval = 1, group = grpEMA)
 i_emaSlow  = input.int(60, "Slow EMA",  minval = 1, group = grpEMA)
 i_showEMA  = input.bool(true, "แสดงเส้น EMA", group = grpEMA)
 i_showEMAbg = input.bool(true, "แสดงพื้นหลัง EMA Cross", group = grpEMA)
-i_showHTF_EMA = input.bool(true, "แสดง HTF EMA", group = grpEMA)
-i_htfEMA_TF   = input.string("240", "HTF", options = ["60", "240", "D", "W"], group = grpEMA)
-i_htfEMA_Len  = input.int(60, "HTF EMA Length", minval = 1, group = grpEMA)
-i_htfEMA_Col  = input.color(#FFFFFF, "HTF EMA Color", group = grpEMA)
+
+// ── 📍 H4 EMA (เฉพาะ H1) ───────────────────────────────────────────────
+grpH4EMA      = "📍 H4 EMA (เฉพาะ H1)"
+i_showHTF_EMA = input.bool(true, "แสดง H4 EMA", group = grpH4EMA)
+i_htfEMA_Len  = input.int(60, "Length", minval = 1, group = grpH4EMA)
+i_htfEMA_Col  = input.color(#FFFFFF, "Color", group = grpH4EMA)
 
 // ── 📊 แสดงผล ─────────────────────────────────────────────────────────────
 grpDisplay = "📊 แสดงผล"
@@ -68,15 +70,13 @@ i_showMarkers = input.bool(true,  "แสดงจุด OVS/OVB",      group = 
 i_maxMarkers  = input.int(30, "จำนวนจุดสูงสุด (คู่)",    minval = 5, maxval = 100, group = grpDisplay)
 i_showTrend   = input.bool(true, "แสดงป้ายเทรน (UP/DN)",  group = grpDisplay)
 i_showZones   = input.bool(false, "แสดงพื้นหลังโซน OVS/OVB", group = grpDisplay)
-i_showPattern = input.bool(false, "แสดงเส้น Flag Pattern", group = grpDisplay)
-i_pivotLen    = input.int(2, "Pivot Length (Flag)",       minval = 1, maxval = 5, group = grpDisplay)
 
 // ── 🕯️ Momentum Candle ─────────────────────────────────────────────────────
 grpMom       = "🕯️ Momentum Candle"
-i_showMom    = input.bool(true,  "แสดง Momentum Candle",  group = grpMom)
+i_showMom    = input.bool(true,  "ระบายสีแท่ง",            group = grpMom)
 i_momDay     = input.bool(false, "Day",  inline = "mTF1", group = grpMom)
 i_momH4      = input.bool(false, "H4",   inline = "mTF1", group = grpMom)
-i_momH1      = input.bool(true,  "H1",   inline = "mTF1", group = grpMom)
+i_momH1      = input.bool(false, "H1",   inline = "mTF1", group = grpMom)
 i_momM15     = input.bool(true,  "M15",  inline = "mTF2", group = grpMom)
 i_momM5      = input.bool(true,  "M5",   inline = "mTF2", group = grpMom)
 i_momM3      = input.bool(true,  "M3",   inline = "mTF2", group = grpMom)
@@ -179,7 +179,7 @@ rsiInOvs = rsiRaw < i_rsiOvsLevel
 rsiInOvb = rsiRaw > i_rsiOvbLevel
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Momentum Candle (chart TF)
+// Momentum Candle
 // ─────────────────────────────────────────────────────────────────────────────
 
 momBody    = math.abs(close - open)
@@ -193,6 +193,26 @@ momSupBear = momBody > momAvg * i_momMult and momBear and momVolOk
 momAbvBull = momBody > momAvg and momBull and not momSupBull and momVolOk
 momAbvBear = momBody > momAvg and momBear and not momSupBear and momVolOk
 momState   = momSupBull ? 2 : momSupBear ? -2 : momAbvBull ? 1 : momAbvBear ? -1 : 0
+
+momState_day = i_momDay ? request.security(syminfo.tickerid, "D",   momState) : 0
+momState_h4  = i_momH4  ? request.security(syminfo.tickerid, "240", momState) : 0
+momState_h1  = i_momH1  ? request.security(syminfo.tickerid, "60",  momState) : 0
+momState_m15 = i_momM15 ? request.security(syminfo.tickerid, "15",  momState) : 0
+momState_m5  = i_momM5  ? request.security(syminfo.tickerid, "5",   momState) : 0
+momState_m3  = i_momM3  ? request.security(syminfo.tickerid, "3",   momState) : 0
+momState_m1  = i_momM1  ? request.security(syminfo.tickerid, "1",   momState) : 0
+
+_momSec     = timeframe.in_seconds()
+momTFActive = (i_momDay and _momSec == timeframe.in_seconds("D"))   or
+              (i_momH4  and _momSec == timeframe.in_seconds("240")) or
+              (i_momH1  and _momSec == timeframe.in_seconds("60"))  or
+              (i_momM15 and _momSec == timeframe.in_seconds("15"))  or
+              (i_momM5  and _momSec == timeframe.in_seconds("5"))   or
+              (i_momM3  and _momSec == timeframe.in_seconds("3"))   or
+              (i_momM1  and _momSec == timeframe.in_seconds("1"))
+
+momBarCol = momSupBull ? color.rgb(0, 230, 64) : momSupBear ? color.rgb(255, 23, 23) : momAbvBull ? color.rgb(0, 230, 64, 50) : momAbvBear ? color.rgb(255, 23, 23, 50) : na
+barcolor(i_showMom and momTFActive ? momBarCol : na, title = "Momentum Candle")
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TF Helpers
@@ -219,8 +239,6 @@ formatTF(string tf) =>
         => tf
     result
 
-mainTFTag = formatTF(timeframe.period)
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Multi-TF Data Fetching
 // ─────────────────────────────────────────────────────────────────────────────
@@ -238,18 +256,6 @@ mainTFTag = formatTF(timeframe.period)
 [ltH_15, ltL_15, ltC_15, ltK_15, ltT_15]  = request.security_lower_tf(syminfo.tickerid, "15",  [high, low, close, ta.sma(ta.stoch(close, high, low, i_kPeriod), i_slowing), time], ignore_invalid_timeframe = true)
 [ltH_5,  ltL_5,  ltC_5,  ltK_5,  ltT_5]   = request.security_lower_tf(syminfo.tickerid, "5",   [high, low, close, ta.sma(ta.stoch(close, high, low, i_kPeriod), i_slowing), time], ignore_invalid_timeframe = true)
 [ltH_1m, ltL_1m, ltC_1m, ltK_1m, ltT_1m]  = request.security_lower_tf(syminfo.tickerid, "1",   [high, low, close, ta.sma(ta.stoch(close, high, low, i_kPeriod), i_slowing), time], ignore_invalid_timeframe = true)
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Momentum Candle Multi-TF
-// ─────────────────────────────────────────────────────────────────────────────
-
-momState_day = i_momDay ? request.security(syminfo.tickerid, "D",   momState) : 0
-momState_h4  = i_momH4  ? request.security(syminfo.tickerid, "240", momState) : 0
-momState_h1  = i_momH1  ? request.security(syminfo.tickerid, "60",  momState) : 0
-momState_m15 = i_momM15 ? request.security(syminfo.tickerid, "15",  momState) : 0
-momState_m5  = i_momM5  ? request.security(syminfo.tickerid, "5",   momState) : 0
-momState_m3  = i_momM3  ? request.security(syminfo.tickerid, "3",   momState) : 0
-momState_m1  = i_momM1  ? request.security(syminfo.tickerid, "1",   momState) : 0
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fibo Helper Functions
@@ -270,7 +276,7 @@ createFiboSet(float lo, float hi, int startX, int endX, int fType, string fName,
     x2  = endX
 
     baseCol  = i_colPending
-    hlIndex  = fType == FT_SOMBOON ? 0 : 0
+    hlIndex  = 0
     fs.hlIdx := hlIndex
 
     dirTag  = dir == 1 ? "▲" : "▼"
@@ -647,20 +653,10 @@ var label curOvsLbl = na
 var label curOvbLbl = na
 var array<label> allMarkers = array.new<label>()
 
-var float confirmedOvbHigh    = na
-var int   confirmedOvbBar    = na
 var float prevConfirmedOvsLow = na
-var int   prevConfirmedOvsBar = na
 var int   trend        = 0
 var float prevOvbHigh  = na
 var array<label> trendLabels = array.new<label>()
-
-
-var float patPivHi    = na
-var int   patPivHiBar = na
-var float patPivLo    = na
-var int   patPivLoBar = na
-var array<line> patLines = array.new<line>()
 
 // ─────────────────────────────────────────────────────────────────────────────
 // RSI Mountain Cut State Machine
@@ -686,25 +682,11 @@ if i_rsiCutEnabled
 bgcolor(i_rsiCutEnabled and rsiCutBar ? color.new(color.purple, 70) : na, title = "RSI CUT")
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pivot Detection
-// ─────────────────────────────────────────────────────────────────────────────
-
-pivHi = ta.pivothigh(high, i_pivotLen, i_pivotLen)
-pivLo = ta.pivotlow(low, i_pivotLen, i_pivotLen)
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Main State Machine (chart TF)
 // ─────────────────────────────────────────────────────────────────────────────
 
 switch smState
     SM_WAIT_OVS =>
-        if not na(pivHi) and na(patPivHi)
-            patPivHi    := pivHi
-            patPivHiBar := bar_index - i_pivotLen
-        if not na(pivLo) and na(patPivLo)
-            patPivLo    := pivLo
-            patPivLoBar := bar_index - i_pivotLen
-
         if na(ovsLow) or low < ovsLow
             ovsLow  := low
             ovsBar  := bar_index
@@ -777,25 +759,6 @@ switch smState
                              textcolor = color.white, size = size.normal))
 
             prevConfirmedOvsLow := savedOvsLow
-            prevConfirmedOvsBar := savedOvsBar
-
-            if i_showPattern and not na(confirmedOvbHigh) and not na(confirmedOvbBar)
-                if not na(patPivHi) and not na(patPivHiBar)
-                    upperLine = line.new(confirmedOvbBar, confirmedOvbHigh, patPivHiBar, patPivHi,
-                         color = color.new(color.white, 20), width = 1, style = line.style_solid, extend = extend.right)
-                    array.push(patLines, upperLine)
-                if not na(patPivLo) and not na(patPivLoBar)
-                    lowerLine = line.new(patPivLoBar, patPivLo, savedOvsBar, savedOvsLow,
-                         color = color.new(color.white, 20), width = 1, style = line.style_solid, extend = extend.right)
-                    array.push(patLines, lowerLine)
-                while array.size(patLines) > 10
-                    line.delete(array.get(patLines, 0))
-                    array.remove(patLines, 0)
-
-            patPivHi    := na
-            patPivHiBar := na
-            patPivLo    := na
-            patPivLoBar := na
 
             smState := SM_WAIT_OVB
             ovsLow  := na
@@ -868,9 +831,7 @@ switch smState
                              style = label.style_label_down, color = color.new(color.green, 10),
                              textcolor = color.white, size = size.normal))
 
-            prevOvbHigh      := finalOvbHigh
-            confirmedOvbHigh := finalOvbHigh
-            confirmedOvbBar  := finalOvbBar
+            prevOvbHigh := finalOvbHigh
 
             if not na(curOvbLbl)
                 label.set_text(curOvbLbl, "B")
@@ -880,11 +841,6 @@ switch smState
                 label.set_size(curOvbLbl, size.tiny)
                 array.push(allMarkers, curOvbLbl)
                 curOvbLbl := na
-
-            patPivHi    := na
-            patPivHiBar := na
-            patPivLo    := na
-            patPivLoBar := na
 
             smState := SM_WAIT_OVS
             ovbHigh := na
@@ -959,22 +915,16 @@ cloudCol = emaFast > emaSlow ? color.new(color.green, 85) : color.new(color.red,
 fill(pFast, pSlow, i_showEMAbg ? cloudCol : na, title = "EMA Cloud")
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HTF EMA
+// H4 EMA (H1 only)
 // ─────────────────────────────────────────────────────────────────────────────
 
 htfEmaRaw  = ta.ema(close, i_htfEMA_Len)
-htfEmaVal  = request.security(syminfo.tickerid, i_htfEMA_TF, htfEmaRaw)
+htfEmaVal  = request.security(syminfo.tickerid, "240", htfEmaRaw)
 htfAbove   = close > htfEmaVal
-htfCol     = i_showHTF_EMA ? color.new(i_htfEMA_Col, htfAbove ? 0 : 50) : na
+showHTF    = i_showHTF_EMA and isChartH1
+htfCol     = showHTF ? color.new(i_htfEMA_Col, htfAbove ? 0 : 50) : na
 
-plot(i_showHTF_EMA ? htfEmaVal : na, "HTF EMA", htfCol, 3, plot.style_line)
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Momentum Candle Barcolor
-// ─────────────────────────────────────────────────────────────────────────────
-
-momBarCol = momSupBull ? color.rgb(0, 230, 64) : momSupBear ? color.rgb(255, 23, 23) : momAbvBull ? color.rgb(0, 230, 64, 50) : momAbvBear ? color.rgb(255, 23, 23, 50) : na
-barcolor(i_showMom ? momBarCol : na, title = "Momentum Candle")
+plot(showHTF ? htfEmaVal : na, "H4 EMA", htfCol, 3, plot.style_line)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Status Panel
@@ -1037,8 +987,7 @@ if barstate.islast
     smCol    = smState == SM_WAIT_OVS ? color.aqua : color.orange
     smTxt    = smState == SM_WAIT_OVS ? "OVS" : "OVB"
 
-    htfTag   = formatTF(i_htfEMA_TF)
-    htfTxt   = htfAbove ? htfTag + "▲" : htfTag + "▼"
+    htfTxt   = htfAbove ? "H4▲" : "H4▼"
     htfTCol  = htfAbove ? color.new(i_htfEMA_Col, 0) : color.new(i_htfEMA_Col, 50)
 
     table.cell(statusTbl, 0, 0, trendTxt, text_color = trendCol, text_size = size.normal, text_halign = text.align_center, bgcolor = trendBg)
@@ -1047,8 +996,8 @@ if barstate.islast
 
     rowIdx = 1
 
-    if i_showHTF_EMA
-        table.cell(statusTbl, 0, rowIdx, htfTag + " EMA", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
+    if i_showHTF_EMA and isChartH1
+        table.cell(statusTbl, 0, rowIdx, "H4 EMA", text_color = color.gray, text_size = hSz, text_halign = text.align_right)
         table.cell(statusTbl, 1, rowIdx, htfTxt, text_color = htfTCol, text_size = vSz, text_halign = text.align_center)
         table.cell(statusTbl, 2, rowIdx, str.tostring(htfEmaVal, format.mintick), text_color = htfTCol, text_size = size.tiny, text_halign = text.align_left)
         rowIdx += 1
