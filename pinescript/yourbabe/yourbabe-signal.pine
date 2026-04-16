@@ -24,8 +24,8 @@ bool   powerMinDisp  = input.bool(false, "Powerful Minimal Display", group=GRP_O
 bool   fairPriceOn   = input.bool(false, "Fair Price (Toggle)", group=GRP_OPT)
 bool   vShapeOn      = input.bool(false, "V-Shape Line Checking (Toggle)", inline="vs", group=GRP_OPT)
 int    vShapeLB      = input.int(60, "",  minval=1, inline="vs", group=GRP_OPT)
-string flatEmaMode   = input.string("OFF", "Flat EMA Detect", options=["OFF", "ON - Hide", "ON - Short", "ON - Long"], group=GRP_OPT)
-bool   flatMinSig    = input.bool(false, "Flat EMA Minimal Signal", group=GRP_OPT)
+string flatEmaMode   = input.string("OFF", "Flat EMA Detect", options=["OFF", "ON - Hide", "ON - Show"], group=GRP_OPT, tooltip="ON - Hide = ปิดสัญญาณตอน EMA แบน\nON - Show = แสดงสัญญาณแบบ minimal")
+float  flatThresh    = input.float(20, "Flat EMA Threshold (ADX)", minval=5, maxval=50, step=1, group=GRP_OPT, tooltip="ADX ต่ำกว่าค่านี้ = sideway/flat\nค่ายิ่งต่ำ = ตรวจจับ flat น้อยลง (มาตรฐาน: 20)")
 
 // ============================================================================
 // BAR COLOR SETTINGS (M15 only)
@@ -60,6 +60,17 @@ ema8  = ta.ema(close, 8)
 ema14 = ta.ema(close, 14)
 ema60 = ta.ema(close, 60)
 
+htfTF = switch timeframe.period
+    "1"  => "5"
+    "3"  => "15"
+    "5"  => "15"
+    "15" => "60"
+    "30" => "60"
+    "60" => "240"
+    =>      "D"
+
+float htfEma60 = request.security(syminfo.tickerid, htfTF, ta.ema(close, 60), barmerge.gaps_off, barmerge.lookahead_on)
+
 bool ema8x14up = ta.crossover(ema8, ema14)
 bool ema8x14dn = ta.crossunder(ema8, ema14)
 
@@ -93,6 +104,13 @@ bool xDn2 = ta.crossunder(priceLine, sentiment2) and sentiment2 < bbMa
 bool xDn3 = ta.crossunder(priceLine, sentiment3) and sentiment3 < bbMa
 bool crossDnBelowMid = xDn1 or xDn2 or xDn3
 
+float recentLowP  = ta.lowest(priceLine, 10)
+float recentHighP = ta.highest(priceLine, 10)
+float sentMax = math.max(sentiment1, math.max(sentiment2, sentiment3))
+float sentMin = math.min(sentiment1, math.min(sentiment2, sentiment3))
+bool deepDip  = recentLowP < sentMax
+bool deepRise = recentHighP > sentMin
+
 // ============================================================================
 // EMA CROSSOVER STATE + FIRST DIP/RISE
 // ============================================================================
@@ -109,13 +127,9 @@ if ta.crossunder(ema8, ema14)
 // ============================================================================
 // FILTERS
 // ============================================================================
-// --- Flat EMA ---
-float emaSlope8  = math.abs(ema8 - ema8[5]) / ema8[5] * 100
-float emaSlope14 = math.abs(ema14 - ema14[5]) / ema14[5] * 100
-float emaDiff    = math.abs(ema8 - ema14) / ema14 * 100
-
-float flatTh = flatEmaMode == "ON - Short" ? 0.05 : flatEmaMode == "ON - Long" ? 0.03 : flatEmaMode == "ON - Hide" ? 0.05 : 0.0
-bool isFlatEma = flatEmaMode != "OFF" and emaSlope8 < flatTh and emaSlope14 < flatTh and emaDiff < 0.1
+// --- Flat EMA (ADX-based) ---
+[_, _, adxVal] = ta.dmi(14, 14)
+bool isFlatEma = flatEmaMode != "OFF" and adxVal < flatThresh
 
 // --- Powerful Mode (Momentum Candle within lookback) ---
 float bodySize  = math.abs(close - open)
@@ -153,19 +167,21 @@ if specTimeOn
 // ============================================================================
 bool powerOk   = not powerfulOn or isPowerful
 bool fairOk    = not fairPriceOn or isFairPrice
-bool flatOk    = not isFlatEma
+bool flatHide  = isFlatEma and flatEmaMode == "ON - Hide"
+bool flatShow  = isFlatEma and flatEmaMode == "ON - Show"
+bool flatOk    = not flatHide
 bool vShapeBuyOk  = not vShapeOn or vShapeBuy
 bool vShapeSellOk = not vShapeOn or vShapeSell
 
-bool coreBuy  = isM5 and emaBull and ema14 > ema60 and crossUpAboveMid
-bool coreSell = isM5 and not emaBull and ema14 < ema60 and crossDnBelowMid
+bool coreBuy  = isM5 and emaBull and ema14 > ema60 and close > htfEma60 and crossUpAboveMid and deepDip
+bool coreSell = isM5 and not emaBull and ema14 < ema60 and close < htfEma60 and crossDnBelowMid and deepRise
 
 bool buySignal  = coreBuy  and powerOk and fairOk and flatOk and vShapeBuyOk and inAlertTime
 bool sellSignal = coreSell and powerOk and fairOk and flatOk and vShapeSellOk and inAlertTime
 
-// Flat EMA Minimal Signal (แสดงสัญญาณเบาตอน EMA flat)
-bool buyMinSig  = coreBuy  and isFlatEma and flatMinSig and powerOk and fairOk and vShapeBuyOk and inAlertTime
-bool sellMinSig = coreSell and isFlatEma and flatMinSig and powerOk and fairOk and vShapeSellOk and inAlertTime
+// Flat EMA "ON - Show" → แสดงสัญญาณเบาแทน
+bool buyMinSig  = coreBuy  and flatShow and powerOk and fairOk and vShapeBuyOk and inAlertTime
+bool sellMinSig = coreSell and flatShow and powerOk and fairOk and vShapeSellOk and inAlertTime
 
 // Powerful Minimal Display (แสดงสัญญาณเบาตอนแท่งไม่ powerful)
 bool buyPwrMin  = coreBuy  and powerfulOn and not isPowerful and powerMinDisp and fairOk and flatOk and vShapeBuyOk and inAlertTime
@@ -174,8 +190,8 @@ bool sellPwrMin = coreSell and powerfulOn and not isPowerful and powerMinDisp an
 // ============================================================================
 // PLOT SIGNALS
 // ============================================================================
-plotshape(buySignal,  title="Buy Signal",  style=shape.labeldown, location=location.abovebar, color=#00e676, textcolor=#000000, text="BUY",  size=size.normal)
-plotshape(sellSignal, title="Sell Signal", style=shape.labelup,   location=location.belowbar, color=#ff1744, textcolor=#ffffff, text="SELL", size=size.normal)
+plotshape(buySignal,  title="Buy Signal",  style=shape.labeldown, location=location.abovebar, color=#1b5e20, textcolor=#ffffff, text="Buy",  size=size.small)
+plotshape(sellSignal, title="Sell Signal", style=shape.labelup,   location=location.belowbar, color=#b71c1c, textcolor=#ffffff, text="Sell", size=size.small)
 
 plotshape(buyMinSig  and not buySignal,  title="Flat Min Buy",  style=shape.triangleup,   location=location.abovebar, color=color.new(#00e676, 40), size=size.tiny)
 plotshape(sellMinSig and not sellSignal, title="Flat Min Sell", style=shape.triangledown, location=location.belowbar, color=color.new(#ff1744, 40), size=size.tiny)

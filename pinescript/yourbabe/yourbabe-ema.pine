@@ -10,10 +10,11 @@ string GRP_EMA = "EMA"
 int    emaLen1  = input.int(8,  "EMA 1", group=GRP_EMA)
 int    emaLen2  = input.int(14, "EMA 2", group=GRP_EMA)
 int    emaLen3  = input.int(60, "EMA 3", group=GRP_EMA)
-color  emaClr1  = input.color(#ff9800, "EMA 1 Color", inline="c1", group=GRP_EMA)
-color  emaClr2  = input.color(#ffffff, "",             inline="c1", group=GRP_EMA)
-color  emaClr3  = input.color(#2196f3, "",             inline="c1", group=GRP_EMA)
+color  emaClr1  = input.color(#4caf50, "EMA 1 Color", inline="c1", group=GRP_EMA)
+color  emaClr2  = input.color(#e91e63, "",             inline="c1", group=GRP_EMA)
+color  emaClr3  = input.color(#ffffff, "",             inline="c1", group=GRP_EMA)
 bool   cloudOn  = input.bool(true, "EMA Cloud Fill", group=GRP_EMA)
+float  cloudPad = input.float(0.25, "Cloud 14-60 Padding", minval=0.0, maxval=0.45, step=0.05, group=GRP_EMA, tooltip="0 = ติดเส้น, 0.45 = cloud แคบสุด")
 
 // ============================================================================
 // INPUTS — HTF
@@ -75,43 +76,52 @@ ema1 = ta.ema(close, emaLen1)
 ema2 = ta.ema(close, emaLen2)
 ema3 = ta.ema(close, emaLen3)
 
-p1 = plot(ema1, "EMA 8",  color=emaClr1, linewidth=1)
-p2 = plot(ema2, "EMA 14", color=emaClr2, linewidth=1)
-p3 = plot(ema3, "EMA 60", color=emaClr3, linewidth=1)
+color ema14clr = ema1 > ema2 ? #4caf50 : #f44336
+
+float emaDist   = math.abs(ema2 - ema3)
+float cloudMarg = emaDist * cloudPad
+float ema2inner = ema2 > ema3 ? ema2 - cloudMarg : ema2 + cloudMarg
+float ema3inner = ema3 > ema2 ? ema3 - cloudMarg : ema3 + cloudMarg
+
+p1 = plot(ema1, "EMA 8",  color=color.new(color.white, 100), linewidth=2)
+p2 = plot(ema2, "EMA 14", color=ema14clr, linewidth=3)
+p3 = plot(ema3, "EMA 60", color=emaClr3, linewidth=2)
+p2i = plot(ema2inner, "Cloud 14 inner", color=color.new(color.white, 100), linewidth=1, display=display.none)
+p3i = plot(ema3inner, "Cloud 60 inner", color=color.new(color.white, 100), linewidth=1, display=display.none)
 
 // ============================================================================
-// EMA — HTF
+// EMA — HTF (smooth: EMA period x multiplier)
 // ============================================================================
-htfEma1 = request.security(syminfo.tickerid, htfTF, ta.ema(close, emaLen1), barmerge.gaps_off, barmerge.lookahead_on)
-htfEma2 = request.security(syminfo.tickerid, htfTF, ta.ema(close, emaLen2), barmerge.gaps_off, barmerge.lookahead_on)
-htfEma3 = request.security(syminfo.tickerid, htfTF, ta.ema(close, emaLen3), barmerge.gaps_off, barmerge.lookahead_on)
+htfMult = switch timeframe.period
+    "1"   => 5
+    "3"   => 5
+    "5"   => 3
+    "15"  => 4
+    "30"  => 2
+    "60"  => 4
+    "240" => 6
+    =>       1
 
-ph1 = plot(htfOn ? htfEma1 : na, "HTF EMA 8",  color=color.new(emaClr1, 40), linewidth=2)
-ph2 = plot(htfOn ? htfEma2 : na, "HTF EMA 14", color=color.new(emaClr2, 40), linewidth=2)
-ph3 = plot(htfOn ? htfEma3 : na, "HTF EMA 60", color=color.new(emaClr3, 40), linewidth=2)
+htfEma3 = ta.ema(close, emaLen3 * htfMult)
+
+plot(htfOn ? htfEma3 : na, "HTF EMA 60", color=color.new(#00bcd4, 0), linewidth=3)
 
 // ============================================================================
 // EMA CLOUD FILL
 // ============================================================================
-color cloud12 = ema1 > ema2 ? color.new(#4caf50, 85) : color.new(#f44336, 85)
-color cloud23 = ema2 > ema3 ? color.new(#4caf50, 90) : color.new(#f44336, 90)
+color cloud12 = ema1 > ema2 ? color.new(#2e7d32, 65) : color.new(#c62828, 65)
+color cloud23 = ema2 > ema3 ? color.new(#9c27b0, 80) : color.new(#ff9800, 80)
 
 fill(p1, p2, color=cloudOn ? cloud12 : na, title="Cloud 8-14")
-fill(p2, p3, color=cloudOn ? cloud23 : na, title="Cloud 14-60")
-
-color htfCloud12 = htfEma1 > htfEma2 ? color.new(#4caf50, 88) : color.new(#f44336, 88)
-color htfCloud23 = htfEma2 > htfEma3 ? color.new(#4caf50, 92) : color.new(#f44336, 92)
-
-fill(ph1, ph2, color=cloudOn and htfOn ? htfCloud12 : na, title="HTF Cloud 8-14")
-fill(ph2, ph3, color=cloudOn and htfOn ? htfCloud23 : na, title="HTF Cloud 14-60")
+fill(p2i, p3i, color=cloudOn ? cloud23 : na, title="Cloud 14-60")
 
 // ============================================================================
-// HTF BACKGROUND
+// HTF BACKGROUND (use current TF EMA alignment as proxy)
 // ============================================================================
-bool htfBull = htfEma1 > htfEma2 and htfEma2 > htfEma3
-bool htfBear = htfEma1 < htfEma2 and htfEma2 < htfEma3
+bool emaBull = ema1 > ema2 and ema2 > ema3
+bool emaBear = ema1 < ema2 and ema2 < ema3
 
-bgcolor(htfBgOn and htfBull ? color.new(#4caf50, htfBgTr) : htfBgOn and htfBear ? color.new(#9c27b0, htfBgTr) : na, title="HTF Background")
+bgcolor(htfBgOn and emaBull ? color.new(#4caf50, htfBgTr) : htfBgOn and emaBear ? color.new(#9c27b0, htfBgTr) : na, title="HTF Background")
 
 // ============================================================================
 // SESSIONS
