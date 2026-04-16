@@ -18,9 +18,9 @@ int    endMin     = input.int(0,  ":",           inline="et", group=GRP_ALERT)
 // OPTIONAL FILTERS (M5)
 // ============================================================================
 string GRP_OPT = "OPTIONAL (M5)"
-bool   powerfulOn    = input.bool(false, "Powerful Mode (Toggle)", group=GRP_OPT)
-int    powerfulLB    = input.int(5,      "Powerful Lookback",      minval=1, group=GRP_OPT, tooltip="ตรวจ momentum candle ย้อนหลังกี่แท่ง")
-bool   powerMinDisp  = input.bool(false, "Powerful Minimal Display", group=GRP_OPT)
+bool   powerfulOn    = input.bool(false, "Powerful Mode (Toggle)", group=GRP_OPT, tooltip="บล็อคแท่งที่ close เกิน high/low ของ N แท่งก่อนหน้า")
+int    powerfulLB    = input.int(10, "Powerful Lookback", minval=3, maxval=50, step=1, inline="pw", group=GRP_OPT, tooltip="ดู high/low ย้อนหลังกี่แท่ง")
+bool   powerMinDisp  = input.bool(false, "Powerful Minimal Display", inline="pw", group=GRP_OPT)
 bool   fairPriceOn   = input.bool(false, "Fair Price (Toggle)", group=GRP_OPT)
 float  fairPriceX    = input.float(0.3, "Fair Price (x ATR)", minval=0.0, maxval=2.0, step=0.1, inline="fp", group=GRP_OPT, tooltip="low ต้องเคยแตะ EMA14 ± ATR x ค่านี้\n0 = ต้องแตะเส้นเลย")
 int    fairPriceLB   = input.int(10, "Lookback", minval=3, maxval=30, step=1, inline="fp", group=GRP_OPT, tooltip="ดูย้อนหลังกี่แท่ง")
@@ -134,11 +134,15 @@ bool ybCrossDn = ta.crossunder(priceLine, sentimentMain)
 [_, _, adxVal] = ta.dmi(14, 14)
 bool isFlatEma = flatEmaMode != "OFF" and adxVal < flatThresh
 
-// --- Powerful Mode ---
-float bodySize   = math.abs(close - open)
-float avgBody    = ta.sma(bodySize, 20)
-bool  isMomBar   = bodySize > avgBody * 1.5
-bool  isPowerful = ta.barssince(isMomBar) <= powerfulLB
+// --- Powerful Mode (บล็อคแท่งที่ close เกิน swing high/low) ---
+float bodySize    = math.abs(close - open)
+float avgBody     = ta.sma(bodySize, 20)
+bool  isMomBar    = bodySize > avgBody * 1.5
+
+// Powerful — close เกิน high/low ของ N แท่งก่อนหน้า
+float recentHigh = ta.highest(high, powerfulLB)[1]
+float recentLow  = ta.lowest(low, powerfulLB)[1]
+bool  isPowerCandle = (emaBull and close > recentHigh) or (not emaBull and close < recentLow)
 
 // --- Fair Price (pullback แตะ EMA14 ใน N แท่ง) ---
 float candleLow  = ta.lowest(low, fairPriceLB)
@@ -169,7 +173,7 @@ if specTimeOn
 // ============================================================================
 // COMBINE FILTERS → SIGNAL
 // ============================================================================
-bool powerOk      = not powerfulOn or isPowerful
+bool powerOk      = not powerfulOn or not isPowerCandle
 bool fairOk       = not fairPriceOn or isFairPrice
 bool flatHide     = isFlatEma and flatEmaMode == "ON - Hide"
 bool flatShow     = isFlatEma and flatEmaMode == "ON - Show"
@@ -186,8 +190,17 @@ bool sellSignal = coreSell and powerOk and fairOk and flatOk and vShapeSellOk an
 bool buyMinSig  = coreBuy  and flatShow and powerOk and fairOk and vShapeBuyOk and inAlertTime
 bool sellMinSig = coreSell and flatShow and powerOk and fairOk and vShapeSellOk and inAlertTime
 
-bool buyPwrMin  = coreBuy  and powerfulOn and not isPowerful and powerMinDisp and fairOk and flatOk and vShapeBuyOk and inAlertTime
-bool sellPwrMin = coreSell and powerfulOn and not isPowerful and powerMinDisp and fairOk and flatOk and vShapeSellOk and inAlertTime
+bool buyPwrMin  = coreBuy  and powerfulOn and isPowerCandle and powerMinDisp and fairOk and flatOk and vShapeBuyOk and inAlertTime
+bool sellPwrMin = coreSell and powerfulOn and isPowerCandle and powerMinDisp and fairOk and flatOk and vShapeSellOk and inAlertTime
+
+// ============================================================================
+// PLOT SWING POINTS (debug)
+// ============================================================================
+// Swing Points (pivot-based visual)
+float pivHi = ta.pivothigh(high, 2, 2)
+float pivLo = ta.pivotlow(low, 2, 2)
+plotshape(not na(pivHi), title="Swing High", style=shape.circle, location=location.abovebar, color=#ff9800, size=size.tiny, offset=-2)
+plotshape(not na(pivLo), title="Swing Low",  style=shape.circle, location=location.belowbar, color=#2196f3, size=size.tiny, offset=-2)
 
 // ============================================================================
 // PLOT SIGNALS
