@@ -106,4 +106,15 @@ isFairPrice = abs(priceLine - sentiment2) < threshold
 
 ## สถานะปัจจุบัน
 
-`isFairPrice = true` (placeholder — ไม่กรอง) รอทดสอบ scenario
+ใช้แบบเราไปก่อน: **pullback ต้องเคยแตะ EMA14 ใน N แท่ง**
+
+```pine
+float candleLow  = ta.lowest(low, fairPriceLB)
+float candleHigh = ta.highest(high, fairPriceLB)
+bool  isFairPrice = emaBull ? candleLow < ema14 + atrVal * fairPriceX : candleHigh > ema14 - atrVal * fairPriceX
+```
+
+- Default: OFF (toggle)
+- `fairPriceX` = 0.3 (x ATR)
+- `fairPriceLB` = 10 (lookback bars)
+- ยังไม่ตรงต้นฉบับ 100% แต่ใช้งานได้ตามหลักการ pullback
