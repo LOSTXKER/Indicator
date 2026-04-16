@@ -1,435 +1,281 @@
-// YOUR BABE - 5.4
-// Reverse-engineered from screenshots + class notes (Day 1-4)
-// Signal generator + Dashboard Checklist + Bar Color + Alerts
-
+// YOUR BABE Signal
+// TF-aware: M5 signals + M15 bar color & dashboard
 //@version=6
-indicator("YOUR BABE", shorttitle="YB 5.4", overlay=true, max_labels_count=500, max_boxes_count=500, max_lines_count=500, max_bars_back=500)
+indicator("YOUR BABE", shorttitle="YB Signal", overlay=true, max_labels_count=500, max_boxes_count=500, max_lines_count=500, max_bars_back=500)
 
 // ============================================================================
-// SIGNAL CUSTOM
+// ALERT TIME
 // ============================================================================
-string GRP_SIG = "SIGNAL CUSTOM"
-bool   minimalSig    = input.bool(false, "Minimal Signal", group=GRP_SIG, tooltip="แสดงเฉพาะสัญญาณที่มั่นใจสูง")
-string longLabel     = input.string("Buy", "Long Label Signal", options=["Buy", "Long", "B"], group=GRP_SIG)
-string sellLabelTxt  = input.string("Sell", "Sell Label Signal", options=["Sell", "Short", "S"], group=GRP_SIG)
+string GRP_ALERT = "ALERT TIME"
+bool   specTimeOn = input.bool(true,  "Specific Time Alert (On/Off)", group=GRP_ALERT)
+int    alertTZ    = input.int(7,  "Time zone UTC+", minval=-12, maxval=14, group=GRP_ALERT)
+int    startH     = input.int(7,  "Start Time", inline="st", group=GRP_ALERT)
+int    startMin   = input.int(30, ":",           inline="st", group=GRP_ALERT)
+int    endH       = input.int(1,  "End Time",   inline="et", group=GRP_ALERT)
+int    endMin     = input.int(0,  ":",           inline="et", group=GRP_ALERT)
 
 // ============================================================================
 // OPTIONAL (M5)
 // ============================================================================
 string GRP_OPT = "OPTIONAL (M5)"
-bool   momCandleOn   = input.bool(false, "Momentum Candle", group=GRP_OPT)
-bool   powerfulMode  = input.bool(true, "Powerful Mode (Toggle)", group=GRP_OPT)
-bool   fairPriceOn   = input.bool(true, "Fair Price (Toggle)", group=GRP_OPT)
-bool   vShapeOn      = input.bool(true, "V-Shape Line Checking (Toggle)", inline="vs", group=GRP_OPT)
-int    vShapeLookback = input.int(60, "", minval=1, inline="vs", group=GRP_OPT)
-string flatEmaMode   = input.string("ON - Short", "Flat EMA Detect", options=["OFF", "ON - Short", "ON - Long"], group=GRP_OPT)
-bool   flatEmaMinSig = input.bool(true, "Flat EMA Minimal Signal", group=GRP_OPT)
+bool   powerfulOn    = input.bool(false, "Powerful Mode (Toggle)", group=GRP_OPT)
+int    powerfulLB    = input.int(5,      "Powerful Lookback",      minval=1, group=GRP_OPT, tooltip="ตรวจ momentum candle ย้อนหลังกี่แท่ง")
+bool   powerMinDisp  = input.bool(false, "Powerful Minimal Display", group=GRP_OPT)
+bool   fairPriceOn   = input.bool(false, "Fair Price (Toggle)", group=GRP_OPT)
+bool   vShapeOn      = input.bool(false, "V-Shape Line Checking (Toggle)", inline="vs", group=GRP_OPT)
+int    vShapeLB      = input.int(60, "",  minval=1, inline="vs", group=GRP_OPT)
+string flatEmaMode   = input.string("OFF", "Flat EMA Detect", options=["OFF", "ON - Hide", "ON - Short", "ON - Long"], group=GRP_OPT)
+bool   flatMinSig    = input.bool(false, "Flat EMA Minimal Signal", group=GRP_OPT)
 
 // ============================================================================
-// ALERT MODE
+// BAR COLOR SETTINGS (M15 only)
 // ============================================================================
-string GRP_ALERT = "ALERT MODE"
-string alertMode     = input.string("ทั้งคู่", "Alert Mode", options=["ทั้งคู่", "Buy Only", "Sell Only"], group=GRP_ALERT, tooltip="ทั้งคู่ = ส่งทั้ง Buy + Sell")
+string GRP_BAR = "BAR COLOR (M15)"
+bool   barColorOn = input.bool(true, "Enable Bar Color", group=GRP_BAR)
 
 // ============================================================================
-// ALERT TIME
+// DASHBOARD SETTINGS (M15 only)
 // ============================================================================
-string GRP_ATIME = "ALERT TIME"
-bool   specTimeOn    = input.bool(true, "Specific Time Alert (On/Off)", group=GRP_ATIME)
-int    alertTZ       = input.int(7, "Time zone UTC+", minval=-12, maxval=14, group=GRP_ATIME)
-int    startH        = input.int(7, "Start Time", inline="st", group=GRP_ATIME)
-int    startMin      = input.int(30, ":", inline="st", group=GRP_ATIME)
-int    endH          = input.int(1, "End Time", inline="et", group=GRP_ATIME)
-int    endMin        = input.int(0, ":", inline="et", group=GRP_ATIME)
+string GRP_DASH = "DASHBOARD (M15)"
+bool   dashOn   = input.bool(true, "Dashboard Checklist", group=GRP_DASH)
+string dashLoc  = input.string("Bottom Right", "Location", options=["Top Left", "Top Right", "Bottom Left", "Bottom Right"], group=GRP_DASH)
+string dashSize = input.string("small", "Size", options=["small", "normal", "large"], group=GRP_DASH)
 
 // ============================================================================
-// SETTINGS MOM (M5/M15)
+// TDI SETTINGS (internal — must match yourbabe-indicator.pine)
 // ============================================================================
-string GRP_MOM = "SETTINGS MOM (M5/M15)"
-bool   momPaintOn    = input.bool(false, "MOM Paint Toggle On/Off", group=GRP_MOM)
-string momTheme      = input.string("ค่าเริ่มต้น", "MOM Theme Color", options=["ค่าเริ่มต้น", "Dark", "Light"], group=GRP_MOM)
+string GRP_TDI = "TDI (Match Indicator)"
+int    rsiPeriod   = input.int(13,     "RSI Period",      minval=1, group=GRP_TDI)
+int    bandLen     = input.int(31,     "Band Length",     minval=1, group=GRP_TDI)
+int    pricePeriod = input.int(1,      "Price Period",    minval=1, group=GRP_TDI)
+int    sentPeriod  = input.int(8,      "Sentiment Period (M15)", minval=1, group=GRP_TDI, tooltip="M15 Sentiment line")
+int    sent1Period = input.int(6,      "รวบเส้น 1",        minval=1, group=GRP_TDI)
+int    sent2Period = input.int(8,      "รวบเส้น 2",        minval=1, group=GRP_TDI)
+int    sent3Period = input.int(9,      "รวบเส้น 3",        minval=1, group=GRP_TDI)
 
 // ============================================================================
-// SETTINGS CHECKLIST DISPLAY ONLY IN (M15)
-// ============================================================================
-string GRP_DASH = "SETTINGS CHECKLIST DISPLAY ONLY IN (M15)"
-bool   dashOn        = input.bool(true, "Dashboard Checklist Toggle On/Off", group=GRP_DASH)
-string dashLoc       = input.string("Bottom Right", "Dashboard Location", options=["Top Left", "Top Right", "Bottom Left", "Bottom Right"], group=GRP_DASH)
-string dashSize      = input.string("เล็ก", "Dashboard Size", options=["เล็ก", "ปกติ", "ใหญ่"], group=GRP_DASH)
-
-// ============================================================================
-// HIGH TIMEFRAME CANDLE DISPLAY
-// ============================================================================
-string GRP_HTC = "HIGH TIMEFRAME CANDLE DISPLAY"
-bool   htcOn         = input.bool(false, "High Timeframe Candle (Toggle)", group=GRP_HTC)
-bool   htcLabelOn    = input.bool(true, "Label (Toggle)", inline="htcl", group=GRP_HTC)
-color  htcLabelClr   = input.color(color.white, "", inline="htcl", group=GRP_HTC)
-string htcLabelSize  = input.string("large", "", options=["small", "normal", "large"], inline="htcl", group=GRP_HTC)
-int    htcInitTime   = input.int(5, "Initialize Time (Second)", group=GRP_HTC)
-int    htcCount      = input.int(10, "Candle", minval=1, maxval=50, group=GRP_HTC)
-color  htcBodyBull   = input.color(color.new(#26a69a, 20), "Candle Body", inline="cb", group=GRP_HTC)
-color  htcBodyBear   = input.color(color.new(#ef5350, 20), "", inline="cb", group=GRP_HTC)
-color  htcBorderBull = input.color(color.new(#26a69a, 40), "Candle Borders", inline="cbd", group=GRP_HTC)
-color  htcBorderBear = input.color(color.new(#ef5350, 40), "", inline="cbd", group=GRP_HTC)
-color  htcWickBull   = input.color(color.new(#26a69a, 40), "Candle Wick", inline="cw", group=GRP_HTC)
-color  htcWickBear   = input.color(color.new(#ef5350, 40), "", inline="cw", group=GRP_HTC)
-int    htcDistance    = input.int(10, "Distance of Display", group=GRP_HTC)
-int    htcSpace      = input.int(1, "Space Between Candle (1 - 4)", minval=1, maxval=4, group=GRP_HTC)
-int    htcWidth      = input.int(1, "Candle Width (1 - 4)", minval=1, maxval=4, group=GRP_HTC)
-
-// ============================================================================
-// Internal: HTF auto-detect
-// ============================================================================
-htfTF = switch timeframe.period
-    "1"   => "5"
-    "3"   => "15"
-    "5"   => "15"
-    "15"  => "60"
-    "30"  => "60"
-    "60"  => "240"
-    "240" => "D"
-    => "D"
-
-// ============================================================================
-// EMA Calculations (Current TF)
+// EMA CALCULATIONS
 // ============================================================================
 ema8  = ta.ema(close, 8)
 ema14 = ta.ema(close, 14)
 ema60 = ta.ema(close, 60)
 
-// EMA Calculations (HTF)
-htfEma8  = request.security(syminfo.tickerid, htfTF, ta.ema(close, 8),  barmerge.gaps_off, barmerge.lookahead_on)
-htfEma14 = request.security(syminfo.tickerid, htfTF, ta.ema(close, 14), barmerge.gaps_off, barmerge.lookahead_on)
-htfEma60 = request.security(syminfo.tickerid, htfTF, ta.ema(close, 60), barmerge.gaps_off, barmerge.lookahead_on)
+bool ema8x14up = ta.crossover(ema8, ema14)
+bool ema8x14dn = ta.crossunder(ema8, ema14)
 
 // ============================================================================
-// TDI / Oscillator Calculations (for signal + bar color)
+// TDI CALCULATIONS
 // ============================================================================
-int    _rsiPeriod  = 13
-int    _bandLen    = 31
-float  _bandMult   = 1.6185
-int    _fastMA     = 1
-int    _slowMA     = 9
-
-rsiVal     = ta.rsi(close, _rsiPeriod)
-bbMa       = ta.sma(rsiVal, _bandLen)
-bbStd      = ta.stdev(rsiVal, _bandLen)
-upperBand  = bbMa + _bandMult * bbStd
-lowerBand  = bbMa - _bandMult * bbStd
-middleBand = (upperBand + lowerBand) / 2.0
-
-priceLine  = ta.sma(rsiVal, _fastMA)
-sentiment1 = ta.sma(rsiVal, _slowMA)
-
-// M15 TDI
-m15Price = request.security(syminfo.tickerid, "15", ta.sma(ta.rsi(close, _rsiPeriod), _fastMA), barmerge.gaps_off, barmerge.lookahead_on)
-m15Sent  = request.security(syminfo.tickerid, "15", ta.sma(ta.rsi(close, _rsiPeriod), _slowMA), barmerge.gaps_off, barmerge.lookahead_on)
-m15Mid   = request.security(syminfo.tickerid, "15", (ta.sma(ta.rsi(close, _rsiPeriod), _bandLen) + _bandMult * ta.stdev(ta.rsi(close, _rsiPeriod), _bandLen) + ta.sma(ta.rsi(close, _rsiPeriod), _bandLen) - _bandMult * ta.stdev(ta.rsi(close, _rsiPeriod), _bandLen)) / 2.0, barmerge.gaps_off, barmerge.lookahead_on)
+rsiVal     = ta.rsi(close, rsiPeriod)
+bbMa       = ta.sma(rsiVal, bandLen)
+priceLine     = ta.sma(rsiVal, pricePeriod)
+sentimentMain = ta.sma(rsiVal, sentPeriod)
+sentiment1    = ta.sma(rsiVal, sent1Period)
+sentiment2    = ta.sma(rsiVal, sent2Period)
+sentiment3    = ta.sma(rsiVal, sent3Period)
 
 // ============================================================================
-// EMA Crossover Detection
+// M15: Price vs main Sentiment (for bar color)
 // ============================================================================
-bool ema8over14    = ta.crossover(ema8, ema14)
-bool ema8under14   = ta.crossunder(ema8, ema14)
-bool emaBullAlign  = ema8 > ema14 and ema14 > ema60
-bool emaBearAlign  = ema8 < ema14 and ema14 < ema60
-
-// Recent EMA cross (within last 5 bars)
-bool recentBullCross = ta.barssince(ema8over14) <= 5 and emaBullAlign
-bool recentBearCross = ta.barssince(ema8under14) <= 5 and emaBearAlign
-
-// Your babe (oscillator) crossovers
-bool ybCrossover  = ta.crossover(priceLine, sentiment1)
-bool ybCrossunder = ta.crossunder(priceLine, sentiment1)
-
-// TDI crossover within 3-bar window (more forgiving than exact bar)
-bool recentYBCrossUp   = ta.barssince(ybCrossover) <= 3 and priceLine > sentiment1
-bool recentYBCrossDown = ta.barssince(ybCrossunder) <= 3 and priceLine < sentiment1
+bool ybCrossUp = ta.crossover(priceLine, sentimentMain)
+bool ybCrossDn = ta.crossunder(priceLine, sentimentMain)
 
 // ============================================================================
-// Flat EMA Detection
+// M5 CORE SIGNAL LOGIC
 // ============================================================================
+bool xUp1 = ta.crossover(priceLine, sentiment1) and sentiment1 > bbMa
+bool xUp2 = ta.crossover(priceLine, sentiment2) and sentiment2 > bbMa
+bool xUp3 = ta.crossover(priceLine, sentiment3) and sentiment3 > bbMa
+bool crossUpAboveMid = xUp1 or xUp2 or xUp3
+
+bool xDn1 = ta.crossunder(priceLine, sentiment1) and sentiment1 < bbMa
+bool xDn2 = ta.crossunder(priceLine, sentiment2) and sentiment2 < bbMa
+bool xDn3 = ta.crossunder(priceLine, sentiment3) and sentiment3 < bbMa
+bool crossDnBelowMid = xDn1 or xDn2 or xDn3
+
+// ============================================================================
+// EMA CROSSOVER STATE + FIRST DIP/RISE
+// ============================================================================
+bool isM5  = timeframe.period == "5"
+bool isM15 = timeframe.period == "15"
+
+var bool emaBull = false
+
+if ta.crossover(ema8, ema14)
+    emaBull := true
+if ta.crossunder(ema8, ema14)
+    emaBull := false
+
+// ============================================================================
+// FILTERS
+// ============================================================================
+// --- Flat EMA ---
 float emaSlope8  = math.abs(ema8 - ema8[5]) / ema8[5] * 100
 float emaSlope14 = math.abs(ema14 - ema14[5]) / ema14[5] * 100
 float emaDiff    = math.abs(ema8 - ema14) / ema14 * 100
 
-float flatThreshold = flatEmaMode == "ON - Short" ? 0.05 : flatEmaMode == "ON - Long" ? 0.03 : 0.0
-bool  isFlatEma     = flatEmaMode != "OFF" and (emaSlope8 < flatThreshold and emaSlope14 < flatThreshold and emaDiff < 0.1)
+float flatTh = flatEmaMode == "ON - Short" ? 0.05 : flatEmaMode == "ON - Long" ? 0.03 : flatEmaMode == "ON - Hide" ? 0.05 : 0.0
+bool isFlatEma = flatEmaMode != "OFF" and emaSlope8 < flatTh and emaSlope14 < flatTh and emaDiff < 0.1
 
-// ============================================================================
-// Fair Price Check — price near EMA 14 or 60
-// ============================================================================
-float atrVal       = ta.atr(14)
-bool  isFairPrice  = math.abs(close - ema14) < atrVal * 2.0 or math.abs(close - ema60) < atrVal * 3.0
+// --- Powerful Mode (Momentum Candle within lookback) ---
+float bodySize  = math.abs(close - open)
+float avgBody   = ta.sma(bodySize, 20)
+bool  isMomBar  = bodySize > avgBody * 1.5
+bool  isPowerful = ta.barssince(isMomBar) <= powerfulLB
 
-// ============================================================================
-// Pullback Proximity Check — price recently touched EMA 14 zone
-// ============================================================================
-float recentLow10  = ta.lowest(low, 10)
-float recentHigh10 = ta.highest(high, 10)
-bool  pullbackBuy  = recentLow10 <= ema14 + atrVal * 1.5 and recentLow10 >= ema14 - atrVal * 1.5
-bool  pullbackSell = recentHigh10 >= ema14 - atrVal * 1.5 and recentHigh10 <= ema14 + atrVal * 1.5
+// --- Fair Price ---
+float atrVal = ta.atr(14)
+bool  isFairPrice = math.abs(close - ema14) < atrVal * 2.0 or math.abs(close - ema60) < atrVal * 3.0
 
-// ============================================================================
-// TDI Band Squeeze Filter — suppress signals in low volatility
-// ============================================================================
-float tdiWidth    = upperBand - lowerBand
-float avgTdiWidth = ta.sma(tdiWidth, 50)
-bool  tdiSqueeze  = tdiWidth < avgTdiWidth * 0.7
+// --- V-Shape ---
+float lowestR  = ta.lowest(low, vShapeLB)
+float highestR = ta.highest(high, vShapeLB)
+int   bFromLo  = ta.barssince(low == lowestR)
+int   bFromHi  = ta.barssince(high == highestR)
+bool  vShapeBuy  = bFromLo < vShapeLB and (close - lowestR) > atrVal * 2.0 and bFromLo < vShapeLB / 3
+bool  vShapeSell = bFromHi < vShapeLB and (highestR - close) > atrVal * 2.0 and bFromHi < vShapeLB / 3
 
-// ============================================================================
-// V-Shape Detection — sharp reversal in price
-// ============================================================================
-float lowestRecent  = ta.lowest(low, vShapeLookback)
-float highestRecent = ta.highest(high, vShapeLookback)
-int   barsFromLow   = ta.barssince(low == lowestRecent)
-int   barsFromHigh  = ta.barssince(high == highestRecent)
-
-bool vShapeBuy  = barsFromLow < vShapeLookback and (close - lowestRecent) > atrVal * 2.0 and barsFromLow < vShapeLookback / 3
-bool vShapeSell = barsFromHigh < vShapeLookback and (highestRecent - close) > atrVal * 2.0 and barsFromHigh < vShapeLookback / 3
-
-// ============================================================================
-// Momentum Candle Detection
-// ============================================================================
-float bodySize     = math.abs(close - open)
-float avgBody      = ta.sma(bodySize, 20)
-bool  isMomCandle  = bodySize > avgBody * 1.5
-
-// ============================================================================
-// SIGNAL GENERATION — Our Version (Research-backed)
-// ============================================================================
-// Condition 1 — EMA Trend:
-//   ema8 > ema14 AND close > ema60 (60 not blocking)
-// Condition 2 — TDI Momentum:
-//   priceLine crossed above sentiment1 within 3 bars
-//   AND priceLine > middleBand (faster than sentiment check)
-// Condition 3 — Pullback Proximity:
-//   Price recently pulled back near EMA 14 (within 1.5 ATR)
-
-bool emaBuyOk   = ema8 > ema14 and close > ema60
-bool emaSellOk  = ema8 < ema14 and close < ema60
-
-bool tdiBuyOk   = recentYBCrossUp and priceLine > middleBand
-bool tdiSellOk  = recentYBCrossDown and priceLine < middleBand
-
-bool coreBuy  = emaBuyOk and tdiBuyOk and pullbackBuy and not tdiSqueeze
-bool coreSell = emaSellOk and tdiSellOk and pullbackSell and not tdiSqueeze
-
-// Filters
-bool flatFilter  = isFlatEma ? false : true
-bool powerFilter = powerfulMode ? isMomCandle : true
-
-bool buySignal  = coreBuy and flatFilter and (not minimalSig or powerFilter)
-bool sellSignal = coreSell and flatFilter and (not minimalSig or powerFilter)
-
-// Flat EMA minimal signal
-bool buyMinSig  = coreBuy and isFlatEma and flatEmaMinSig
-bool sellMinSig = coreSell and isFlatEma and flatEmaMinSig
-
-// Alert mode filter
-bool finalBuy  = buySignal and (alertMode == "ทั้งคู่" or alertMode == "Buy Only")
-bool finalSell = sellSignal and (alertMode == "ทั้งคู่" or alertMode == "Sell Only")
-
-// ============================================================================
-// Time Filter
-// ============================================================================
-tzStr = alertTZ >= 0 ? str.format("UTC+{0}", alertTZ) : str.format("UTC{0}", alertTZ)
-int currentH = hour(time, tzStr)
-int currentM = minute(time, tzStr)
-int currentMinutes = currentH * 60 + currentM
-int startMinutes   = startH * 60 + startMin
-int endMinutes     = endH * 60 + endMin
+// --- Time Filter ---
+string tzStr       = alertTZ >= 0 ? str.format("UTC+{0}", alertTZ) : str.format("UTC{0}", alertTZ)
+int    currentMins = hour(time, tzStr) * 60 + minute(time, tzStr)
+int    startMins   = startH * 60 + startMin
+int    endMins     = endH * 60 + endMin
 
 bool inAlertTime = true
 if specTimeOn
-    if startMinutes < endMinutes
-        inAlertTime := currentMinutes >= startMinutes and currentMinutes <= endMinutes
+    if startMins < endMins
+        inAlertTime := currentMins >= startMins and currentMins <= endMins
     else
-        inAlertTime := currentMinutes >= startMinutes or currentMinutes <= endMinutes
+        inAlertTime := currentMins >= startMins or currentMins <= endMins
 
-bool timeBuy  = finalBuy and inAlertTime
-bool timeSell = finalSell and inAlertTime
+// ============================================================================
+// COMBINE FILTERS
+// ============================================================================
+bool powerOk   = not powerfulOn or isPowerful
+bool fairOk    = not fairPriceOn or isFairPrice
+bool flatOk    = not isFlatEma
+bool vShapeBuyOk  = not vShapeOn or vShapeBuy
+bool vShapeSellOk = not vShapeOn or vShapeSell
+
+bool coreBuy  = isM5 and emaBull and ema14 > ema60 and crossUpAboveMid
+bool coreSell = isM5 and not emaBull and ema14 < ema60 and crossDnBelowMid
+
+bool buySignal  = coreBuy  and powerOk and fairOk and flatOk and vShapeBuyOk and inAlertTime
+bool sellSignal = coreSell and powerOk and fairOk and flatOk and vShapeSellOk and inAlertTime
+
+// Flat EMA Minimal Signal (แสดงสัญญาณเบาตอน EMA flat)
+bool buyMinSig  = coreBuy  and isFlatEma and flatMinSig and powerOk and fairOk and vShapeBuyOk and inAlertTime
+bool sellMinSig = coreSell and isFlatEma and flatMinSig and powerOk and fairOk and vShapeSellOk and inAlertTime
+
+// Powerful Minimal Display (แสดงสัญญาณเบาตอนแท่งไม่ powerful)
+bool buyPwrMin  = coreBuy  and powerfulOn and not isPowerful and powerMinDisp and fairOk and flatOk and vShapeBuyOk and inAlertTime
+bool sellPwrMin = coreSell and powerfulOn and not isPowerful and powerMinDisp and fairOk and flatOk and vShapeSellOk and inAlertTime
 
 // ============================================================================
 // PLOT SIGNALS
 // ============================================================================
-// Main signals (shapes — above/below bar)
-plotshape(timeBuy,  title="Buy Signal",  style=shape.labelup,   location=location.belowbar, color=#4caf50, textcolor=color.white, text="Buy",  size=size.small)
-plotshape(timeSell, title="Sell Signal", style=shape.labeldown, location=location.abovebar, color=#f44336, textcolor=color.white, text="Sell", size=size.small)
+plotshape(buySignal,  title="Buy Signal",  style=shape.labeldown, location=location.abovebar, color=#00e676, textcolor=#000000, text="BUY",  size=size.normal)
+plotshape(sellSignal, title="Sell Signal", style=shape.labelup,   location=location.belowbar, color=#ff1744, textcolor=#ffffff, text="SELL", size=size.normal)
 
-// Minimal signals for flat EMA
-plotshape(buyMinSig and not buySignal,  title="Buy Min Signal",  style=shape.triangleup,   location=location.belowbar, color=color.new(#4caf50, 50), size=size.tiny)
-plotshape(sellMinSig and not sellSignal, title="Sell Min Signal", style=shape.triangledown, location=location.abovebar, color=color.new(#f44336, 50), size=size.tiny)
+plotshape(buyMinSig  and not buySignal,  title="Flat Min Buy",  style=shape.triangleup,   location=location.abovebar, color=color.new(#00e676, 40), size=size.tiny)
+plotshape(sellMinSig and not sellSignal, title="Flat Min Sell", style=shape.triangledown, location=location.belowbar, color=color.new(#ff1744, 40), size=size.tiny)
+
+plotshape(buyPwrMin  and not buySignal and not buyMinSig,  title="Pwr Min Buy",  style=shape.diamond, location=location.abovebar, color=color.new(#00e676, 50), size=size.tiny)
+plotshape(sellPwrMin and not sellSignal and not sellMinSig, title="Pwr Min Sell", style=shape.diamond, location=location.belowbar, color=color.new(#ff1744, 50), size=size.tiny)
 
 // ============================================================================
-// BAR COLOR — 7 สี (Day 1 notes + acceleration awareness)
+// BAR COLOR — M15 ONLY, 3 COLORS
 // ============================================================================
-// Green:  Strong Bull — EMA + TDI aligned + momentum accelerating
-// Blue:   Moderate Bull — EMA bullish + TDI bullish but decelerating
-// Cyan:   Weak Bull — EMA bullish but TDI weak/neutral
-// Red:    Strong Bear — EMA + TDI aligned + momentum accelerating
-// Orange: Moderate Bear — EMA bearish + TDI bearish but decelerating
-// Gray:   Flat EMA / Sideways / TDI Squeeze
-// Yellow: Divergence — EMA vs oscillator conflict
+var int emaState = 0
+if ema8x14up
+    emaState := 1
+if ema8x14dn
+    emaState := -1
 
-bool recentEMAUp  = ta.barssince(ema8over14) <= 3
-bool recentEMADn  = ta.barssince(ema8under14) <= 3
+var int ybState = 0
+if ybCrossUp
+    ybState := 1
+if ybCrossDn
+    ybState := -1
 
-bool momAccelBull = priceLine > priceLine[1] and priceLine[1] > priceLine[2]
-bool momAccelBear = priceLine < priceLine[1] and priceLine[1] < priceLine[2]
-bool momDecelBull = priceLine > sentiment1 and priceLine < priceLine[1]
-bool momDecelBear = priceLine < sentiment1 and priceLine > priceLine[1]
-
-bool divergenceBull = recentEMAUp and priceLine < sentiment1
-bool divergenceBear = recentEMADn and priceLine > sentiment1
-
-color greenBar  = #4caf50
-color blueBar   = #2196f3
-color cyanBar   = #00bcd4
-color redBar    = #f44336
-color orangeBar = #ff9800
-color grayBar   = #9e9e9e
-color yellowBar = #ffeb3b
+bool stateChanged = ema8x14up or ema8x14dn or ybCrossUp or ybCrossDn
 
 color barCol = na
+if isM15 and barColorOn and stateChanged
+    if emaState == 1 and ybState == 1
+        barCol := #4caf50
+    else if emaState == -1 and ybState == -1
+        barCol := #f44336
+    else
+        barCol := #ffeb3b
 
-if isFlatEma or tdiSqueeze
-    barCol := grayBar
-else if divergenceBull or divergenceBear
-    barCol := yellowBar
-else if emaBuyOk and priceLine > sentiment1 and momAccelBull
-    barCol := greenBar
-else if emaSellOk and priceLine < sentiment1 and momAccelBear
-    barCol := redBar
-else if emaBuyOk and priceLine > sentiment1 and momDecelBull
-    barCol := blueBar
-else if emaSellOk and priceLine < sentiment1 and momDecelBear
-    barCol := orangeBar
-else if ema8 > ema14
-    barCol := cyanBar
-else if ema8 < ema14
-    barCol := color.new(orangeBar, 30)
-else
-    barCol := grayBar
-
-barcolor(momPaintOn ? barCol : na, title="Bar Color")
+barcolor(barCol, title="Bar Color")
 
 // ============================================================================
-// DASHBOARD CHECKLIST — Display only on M15
+// DASHBOARD CHECKLIST — M15 ONLY
 // ============================================================================
-bool isM15 = timeframe.period == "15"
-
 if dashOn and isM15 and barstate.islast
-    // Checklist conditions
-    // BVS = Best V Shape — approximation: recent sharp reversal
-    bool chkBVS      = vShapeBuy or vShapeSell
-    string bvsDir    = vShapeBuy ? "V ▲" : vShapeSell ? "V ▼" : "ดูเอง"
-    color  bvsColor  = chkBVS ? #4caf50 : #9e9e9e
+    bool chkBVS     = vShapeBuy or vShapeSell
+    string bvsText  = vShapeBuy ? "V up" : vShapeSell ? "V dn" : "manual"
+    color  bvsClr   = chkBVS ? #4caf50 : #9e9e9e
 
-    // Pattern approximation: price in consolidation range (low ATR)
     float atrNorm    = atrVal / close * 100
     bool  chkPattern = atrNorm < ta.sma(atrNorm, 50)
-    
-    // Momentum: recent momentum candle
-    bool  chkMOM     = ta.barssince(isMomCandle and (close > open ? emaBullAlign : emaBearAlign)) <= 10
-
-    // Fair Price
+    bool  chkMOM     = ta.barssince(isMomBar and (close > open ? emaBull : not emaBull)) <= 10
     bool  chkFair    = isFairPrice
-
-    // Fibo zone approximation: price between EMA14 and EMA60
     bool  chkFibo    = (close >= math.min(ema14, ema60) and close <= math.max(ema14, ema60)) or math.abs(close - ema14) < atrVal * 1.5
 
-    // Dashboard position
-    var table dash = na
     tblPos = switch dashLoc
         "Top Left"     => position.top_left
         "Top Right"    => position.top_right
         "Bottom Left"  => position.bottom_left
-        => position.bottom_right
+        =>                position.bottom_right
 
-    tblSize = switch dashSize
-        "เล็ก"  => size.small
-        "ปกติ" => size.normal
-        => size.large
+    tblSz = switch dashSize
+        "normal" => size.normal
+        "large"  => size.large
+        =>          size.small
 
+    var table dash = na
     dash := table.new(tblPos, 3, 7, bgcolor=color.new(#1e1e1e, 10), border_width=1, border_color=color.new(color.gray, 50))
 
-    table.cell(dash, 0, 0, "YOUR BABE Checklist", text_color=color.white, text_size=tblSize, bgcolor=color.new(#333333, 0), text_halign=text.align_left)
+    table.cell(dash, 0, 0, "YOUR BABE Checklist", text_color=color.white, text_size=tblSz, bgcolor=color.new(#333333, 0), text_halign=text.align_left)
     table.merge_cells(dash, 0, 0, 2, 0)
 
-    table.cell(dash, 0, 1, "#", text_color=color.gray, text_size=tblSize)
-    table.cell(dash, 1, 1, "Condition", text_color=color.gray, text_size=tblSize, text_halign=text.align_left)
-    table.cell(dash, 2, 1, "Status", text_color=color.gray, text_size=tblSize)
+    table.cell(dash, 0, 1, "#",         text_color=color.gray, text_size=tblSz)
+    table.cell(dash, 1, 1, "Condition", text_color=color.gray, text_size=tblSz, text_halign=text.align_left)
+    table.cell(dash, 2, 1, "Status",    text_color=color.gray, text_size=tblSz)
 
-    // Row: BVS (Best V Shape)
-    table.cell(dash, 0, 2, "1", text_color=color.white, text_size=tblSize)
-    table.cell(dash, 1, 2, "BVS", text_color=color.white, text_size=tblSize, text_halign=text.align_left)
-    table.cell(dash, 2, 2, chkBVS ? bvsDir : "ดูเอง", text_color=bvsColor, text_size=tblSize)
+    table.cell(dash, 0, 2, "1", text_color=color.white, text_size=tblSz)
+    table.cell(dash, 1, 2, "BVS", text_color=color.white, text_size=tblSz, text_halign=text.align_left)
+    table.cell(dash, 2, 2, chkBVS ? bvsText : "manual", text_color=bvsClr, text_size=tblSz)
 
-    // Row: Pattern
-    table.cell(dash, 0, 3, "2", text_color=color.white, text_size=tblSize)
-    table.cell(dash, 1, 3, "Pattern", text_color=color.white, text_size=tblSize, text_halign=text.align_left)
-    table.cell(dash, 2, 3, chkPattern ? "✅" : "❌", text_color=chkPattern ? #4caf50 : #f44336, text_size=tblSize)
+    table.cell(dash, 0, 3, "2", text_color=color.white, text_size=tblSz)
+    table.cell(dash, 1, 3, "Pattern", text_color=color.white, text_size=tblSz, text_halign=text.align_left)
+    table.cell(dash, 2, 3, chkPattern ? "OK" : "X", text_color=chkPattern ? #4caf50 : #f44336, text_size=tblSz)
 
-    // Row: MOM
-    table.cell(dash, 0, 4, "3", text_color=color.white, text_size=tblSize)
-    table.cell(dash, 1, 4, "MOM", text_color=color.white, text_size=tblSize, text_halign=text.align_left)
-    table.cell(dash, 2, 4, chkMOM ? "✅" : "❌", text_color=chkMOM ? #4caf50 : #f44336, text_size=tblSize)
+    table.cell(dash, 0, 4, "3", text_color=color.white, text_size=tblSz)
+    table.cell(dash, 1, 4, "MOM", text_color=color.white, text_size=tblSz, text_halign=text.align_left)
+    table.cell(dash, 2, 4, chkMOM ? "OK" : "X", text_color=chkMOM ? #4caf50 : #f44336, text_size=tblSz)
 
-    // Row: Fair Price
-    table.cell(dash, 0, 5, "4", text_color=color.white, text_size=tblSize)
-    table.cell(dash, 1, 5, "Fair Price", text_color=color.white, text_size=tblSize, text_halign=text.align_left)
-    table.cell(dash, 2, 5, chkFair ? "✅" : "❌", text_color=chkFair ? #4caf50 : #f44336, text_size=tblSize)
+    table.cell(dash, 0, 5, "4", text_color=color.white, text_size=tblSz)
+    table.cell(dash, 1, 5, "Fair Price", text_color=color.white, text_size=tblSz, text_halign=text.align_left)
+    table.cell(dash, 2, 5, chkFair ? "OK" : "X", text_color=chkFair ? #4caf50 : #f44336, text_size=tblSz)
 
-    // Row: Fibo
-    table.cell(dash, 0, 6, "5", text_color=color.white, text_size=tblSize)
-    table.cell(dash, 1, 6, "Fibo Zone", text_color=color.white, text_size=tblSize, text_halign=text.align_left)
-    table.cell(dash, 2, 6, chkFibo ? "✅" : "❌", text_color=chkFibo ? #4caf50 : #f44336, text_size=tblSize)
-
-// ============================================================================
-// HIGH TIMEFRAME CANDLE DISPLAY
-// ============================================================================
-if htcOn and barstate.islast
-    htfO = request.security(syminfo.tickerid, htfTF, open,  barmerge.gaps_off, barmerge.lookahead_on)
-    htfH = request.security(syminfo.tickerid, htfTF, high,  barmerge.gaps_off, barmerge.lookahead_on)
-    htfL = request.security(syminfo.tickerid, htfTF, low,   barmerge.gaps_off, barmerge.lookahead_on)
-    htfC = request.security(syminfo.tickerid, htfTF, close, barmerge.gaps_off, barmerge.lookahead_on)
-
-    bool htfBull = htfC >= htfO
-    int  xPos    = bar_index + htcDistance
-
-    // Draw candle body
-    box.new(xPos, math.max(htfO, htfC), xPos + htcWidth, math.min(htfO, htfC),
-         bgcolor=htfBull ? htcBodyBull : htcBodyBear,
-         border_color=htfBull ? htcBorderBull : htcBorderBear,
-         border_width=1)
-
-    // Draw wicks
-    line.new(xPos + htcWidth / 2, htfH, xPos + htcWidth / 2, math.max(htfO, htfC),
-         color=htfBull ? htcWickBull : htcWickBear, width=1)
-    line.new(xPos + htcWidth / 2, math.min(htfO, htfC), xPos + htcWidth / 2, htfL,
-         color=htfBull ? htcWickBull : htcWickBear, width=1)
-
-    if htcLabelOn
-        label.new(xPos + htcWidth / 2, htfH, htfTF,
-             color=color.new(color.black, 100), textcolor=htcLabelClr,
-             style=label.style_label_down,
-             size=htcLabelSize == "small" ? size.small : htcLabelSize == "large" ? size.large : size.normal)
+    table.cell(dash, 0, 6, "5", text_color=color.white, text_size=tblSz)
+    table.cell(dash, 1, 6, "Fibo Zone", text_color=color.white, text_size=tblSz, text_halign=text.align_left)
+    table.cell(dash, 2, 6, chkFibo ? "OK" : "X", text_color=chkFibo ? #4caf50 : #f44336, text_size=tblSz)
 
 // ============================================================================
 // ALERTS
 // ============================================================================
-// Not Confirmed (during candle formation)
-bool ncBuy  = timeBuy and not barstate.isconfirmed
-bool ncSell = timeSell and not barstate.isconfirmed
-
-// Confirmed (candle closed)
-bool cfBuy  = timeBuy and barstate.isconfirmed
-bool cfSell = timeSell and barstate.isconfirmed
-
 string timeStr = str.format("{0,number,00}:{1,number,00}", hour(time, tzStr), minute(time, tzStr))
 
-// Dynamic alerts (alert() accepts series string)
+bool ncBuy  = buySignal  and not barstate.isconfirmed
+bool ncSell = sellSignal and not barstate.isconfirmed
+bool cfBuy  = buySignal  and barstate.isconfirmed
+bool cfSell = sellSignal and barstate.isconfirmed
+
 if ncBuy
     alert("(Not confirm) " + syminfo.ticker + " ⏱️" + timeStr + " 🟢", alert.freq_once_per_bar)
 if cfBuy
@@ -439,7 +285,6 @@ if ncSell
 if cfSell
     alert("(Confirmed) " + syminfo.ticker + " ⏱️" + timeStr + " 🔴", alert.freq_once_per_bar_close)
 
-// Static alertconditions (for TradingView alert UI)
-alertcondition(cfBuy,            title="CF Buy",   message='(Confirmed) {{ticker}} 🟢')
-alertcondition(cfSell,           title="CF Sell",  message='(Confirmed) {{ticker}} 🔴')
-alertcondition(cfBuy or cfSell,  title="All Confirmed", message='{{ticker}} Signal')
+alertcondition(cfBuy,           title="CF Buy",        message='(Confirmed) {{ticker}} 🟢')
+alertcondition(cfSell,          title="CF Sell",       message='(Confirmed) {{ticker}} 🔴')
+alertcondition(cfBuy or cfSell, title="All Confirmed", message='{{ticker}} Signal')

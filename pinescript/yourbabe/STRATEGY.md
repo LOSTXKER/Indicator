@@ -125,35 +125,78 @@ CF (Confirmed) → Entry
 
 ---
 
-## Indicator 2: YOUR BABEs Indicator 2.2
+## Indicator 2: YOUR BABEs Indicator 2.2 (Yourbabe)
 
-### พื้นฐาน: TDI (Traders Dynamic Index)
+### คำศัพท์ Yourbabe (ยืนยันจากคลิป)
 
-ฐานคำนวณ = RSI + Bollinger Bands ของ RSI
+- **"Yourbabe"** = Indicator ที่อยู่ข้างล่าง (oscillator pane) — ใช้เรียกรวมทั้ง indicator
+- **"เส้นราคา" (Price Line)** = เอาราคากราฟ (close price) มาอยู่เป็นเส้น — เหมือนโหมดเส้นใน TradingView แต่ผ่านสูตร RSI เพื่อแปลงค่าเป็น 0-100 (ทิศทางเดียวกับราคา: ราคาขึ้นเส้นก็ขึ้น ราคาลงเส้นก็ลง)
+- **"เส้นค่าเฉลี่ย" (Sentiment Line)** = ค่าเฉลี่ยของเส้นราคา (เอา RSI มาทำ SMA อีกที)
+- **ราคาตัดขึ้น** (Price ตัด Sentiment ขึ้น) = **สีเขียว** ใน Mountain fills
+- **ราคาตัดลง** (Price ตัด Sentiment ลง) = **สีแดง** ใน Mountain fills
+
+### พื้นฐาน
+
+เบื้องหลังคือ TDI (Traders Dynamic Index) — เอา **close price** ไปผ่าน RSI แล้วแสดงเป็นเส้นในช่วง 0-100
+อาจารย์อธิบายว่า "เอาเส้นราคามาอยู่ใน Yourbabe" ซึ่งถูกใน concept เพราะ RSI สะท้อนทิศทางราคาโดยตรง
 
 ### เส้นหลัก
 
 
-| ชื่อใน Indicator    | คำอธิบาย       | สูตร (ประมาณ)                        |
-| ------------------- | -------------- | ------------------------------------ |
-| **Price** (ราคา)    | Fast line      | Fast MA ของ RSI (period สั้น เช่น 2) |
-| **Sentiment 1**     | Slow line หลัก | Slow MA ของ RSI (period เช่น 7)      |
-| **Sentiment 2**     | Slow line กลาง | MA ของ RSI (period เช่น 14)          |
-| **Sentiment 3**     | Slow line ช้า  | MA ของ RSI (period เช่น 21)          |
-| **Middle of Bands** | เส้นกลาง BB    | Midpoint ของ Bollinger Bands บน RSI  |
+| ชื่อใน Indicator    | คำที่อาจารย์ใช้ | คำอธิบาย       | เบื้องหลัง (สูตร)                   |
+| ------------------- | --------------- | -------------- | ----------------------------------- |
+| **Price** (ราคา)    | เส้นราคา        | Fast line      | RSI ของ close price (ค่า 0-100)     |
+| **Sentiment 1**     | เส้นค่าเฉลี่ย   | Slow line หลัก | SMA(RSI, 9) — ค่าเฉลี่ยของเส้นราคา  |
+| **Sentiment 2**     | —               | Slow line กลาง | MA ของ RSI (period เช่น 14)         |
+| **Sentiment 3**     | —               | Slow line ช้า  | MA ของ RSI (period เช่น 21)         |
+| **Middle of Bands** | เส้นกลาง        | เส้นกลาง BB    | Midpoint ของ Bollinger Bands บน RSI |
 
 
-### สัญญาณจาก Oscillator (Day 3)
+### สัญญาณจาก Oscillator — แยกตาม TF (ยืนยันจากคลิป)
 
-**Buy Signal:**
+#### M15 — ใช้ 2 เส้นหลัก
+
+เส้นที่แสดง: **เส้นราคา** + **เส้นค่าเฉลี่ย (Sentiment)**
+
+**Buy Signal (M15):**
 
 1. EMA 8, 14, 60 Crossover
 2. **Price ตัด Sentiment ขึ้น** + **Sentiment อยู่เหนือเส้นกลาง (Middle of Bands)**
 
-**Sell Signal:**
+**Sell Signal (M15):**
 
 1. EMA 8, 14, 60 Crossunder
 2. **Price ตัด Sentiment ลง** + **Sentiment อยู่ใต้เส้นกลาง**
+
+#### M5 — เพิ่ม "รวบเส้น" อีก 3 เส้น
+
+เส้นที่แสดง: **เส้นราคา** + **เส้นค่าเฉลี่ย (Sentiment)** + **รวบเส้น (3 เส้น sentiment เพิ่มเติม)**
+
+- **รวบเส้น** = 3 เส้น sentiment ที่ period ต่างกัน — มองดูเหมือนเส้นเดียวเพราะค่าใกล้กัน
+- Period: **6, 7, 8** (ทดลองจนใกล้เคียงต้นฉบับ — 3 เส้นเกาะกันเป็นกลุ่มเดียว)
+
+**สีของเส้นใน M5 (ยืนยันจากคลิป):**
+
+
+| เส้น         | สี        | เงื่อนไข                                       |
+| ------------ | --------- | ---------------------------------------------- |
+| **เส้นกลาง** | **ส้ม**   | เส้นราคาอยู่ **ต่ำกว่า** เส้นกลาง              |
+| **เส้นกลาง** | **ม่วง**  | เส้นราคาอยู่ **เหนือ** เส้นกลาง                |
+| **เส้นราคา** | **เขียว** | ตัดรวบเส้น **ขึ้น** (แค่โดนเส้นเดียวก็เปลี่ยน) |
+| **เส้นราคา** | **แดง**   | ตัดรวบเส้น **ลง** (แค่โดนเส้นเดียวก็เปลี่ยน)   |
+
+
+**Buy Signal (M5):**
+
+1. EMA 8, 14, 60 ตัดขึ้น
+2. **Price ตัด รวบเส้น ขึ้น** + **รวบเส้น อยู่เหนือ Sentiment**
+
+**Sell Signal (M5):**
+
+1. EMA 8, 14, 60 ตัดลง
+2. **Price ตัด รวบเส้น ลง** + **รวบเส้น อยู่ใต้ Sentiment**
+
+> M5 ต่างจาก M15 ตรงที่: มี **รวบเส้น** (3 เส้นราคาเพิ่ม) เข้ามาเป็นเงื่อนไข — เช็ค Price ตัดรวบเส้น + ตำแหน่งรวบเส้นเทียบกับ Sentiment
 
 ### Mountain Fills
 
@@ -165,9 +208,11 @@ CF (Confirmed) → Entry
 
 ### M15 Cross-Timeframe
 
-- **Sentiment (M15)**: ดึง Sentiment จาก M15 มาแสดง
-- **Price (M15)**: ดึง Price จาก M15 มาแสดง
-- **Mountain Surface candle (M15)**: ภูเขาของ M15
+> ⚠️ ยืนยันจากคลิป: **ไม่มีการดึง M15 มาแสดงบน M5** — settings เหล่านี้อาจเป็น feature ที่ปิดอยู่หรือใช้บน TF อื่น
+
+- **Sentiment (M15)**: ดึง Sentiment จาก M15 มาแสดง (อาจปิดอยู่)
+- **Price (M15)**: ดึง Price จาก M15 มาแสดง (อาจปิดอยู่)
+- **Mountain Surface candle (M15)**: ภูเขาของ M15 (อาจปิดอยู่)
 
 ### Settings อื่นๆ
 
@@ -177,32 +222,34 @@ CF (Confirmed) → Entry
 
 ---
 
-## Indicator 3: YOUR BABE 5.4
+## Indicator 3: YOUR BABE Signal
 
-### สัญญาณ Buy/Sell — Our Version (Research-backed Rebuild)
+### สัญญาณ Buy/Sell — แยกตาม TF (ยืนยันจากคลิป + Rebuild)
 
-> ปรับปรุงจากเวอร์ชันเดิมที่มีปัญหา timing conflict ระหว่าง TDI crossover กับ sentiment check
+> Signal logic ต่างกันระหว่าง M5 กับ M15 — implement ใน `yourbabe-signal.pine`
 
-**ปัญหาเดิม:**
-- `ta.crossover()` เกิดแค่ 1 bar → ต้อง AND กับ `sentiment > middleBand` พอดี
-- Sentiment (SMA period 9) ช้ากว่า Price Line → ตอน crossover เกิด, sentiment มักยังไม่ข้าม middle
-- ทำให้พลาด signal หลายจุด โดยเฉพาะช่วง early reversal
+**M15 Buy Signal:**
 
-**แนวทางใหม่ — 3 เงื่อนไขหลัก:**
+1. EMA 8 > 14 > 60 (aligned bullish)
+2. Price ตัด Sentiment ขึ้น + Sentiment > Middle Band
 
-**Buy Signal:**
+**M15 Sell Signal:** กระจกของ Buy
 
-1. **EMA Trend** — `ema8 > ema14` AND `close > ema60` (60 ไม่ขวาง, ไม่ต้องเรียงแบบ strict)
-2. **TDI Momentum** — Price Line ตัด Sentiment ขึ้น **ภายใน 3 bars** + `priceLine > middleBand` (ใช้ priceLine แทน sentiment — เร็วกว่า)
-3. **Pullback Proximity** — ราคาเคย pull back มาใกล้ EMA 14 (ภายใน 1.5 ATR) ใน 10 bars ล่าสุด
+**M5 Buy Signal:**
 
-**Sell Signal:** กระจกของ Buy
+1. EMA 8 > 14 > 60 (aligned bullish)
+2. Price ตัดรวบเส้น (sentiment group) ขึ้น + รวบเส้น > Sentiment
 
-**Filters เพิ่มเติม:**
-- **TDI Squeeze** — block signal เมื่อ Bollinger Band width ของ RSI < 70% ของค่าเฉลี่ย (ตลาด sideways/choppy)
-- **Flat EMA** — block เมื่อ EMA slope แบน (เดิม)
-- **Powerful Mode** — ต้องมี momentum candle (เดิม)
-- **Minimal Signal** — กรองเฉพาะ signal ที่มั่นใจสูง (เดิม)
+**M5 Sell Signal:** กระจกของ Buy
+
+**Filters (Toggle ได้ทั้งหมด):**
+
+- **Powerful Mode** — ต้องมี momentum candle (body > avg body × 1.5) ถึงจะแสดง signal หลัก
+- **Powerful Minimal Display** — ถ้าเปิด + ไม่ powerful → แสดง signal เบา (diamond)
+- **Fair Price** — ราคาต้องใกล้ EMA 14 (< ATR×2) หรือ EMA 60 (< ATR×3)
+- **V-Shape Line Checking** — ต้องมี V-Shape reversal ใน lookback period (default 60 bars) — แยก Buy/Sell
+- **Flat EMA Detect** — ตรวจ EMA slope แบน: OFF / ON-Hide (ซ่อน signal) / ON-Short / ON-Long (threshold ต่างกัน)
+- **Flat EMA Minimal Signal** — ตอน Flat EMA แต่ filter อื่นผ่าน → แสดง signal เบา (triangle)
 
 ### Not Confirm / Confirmed
 
@@ -212,37 +259,37 @@ CF (Confirmed) → Entry
   - เงื่อนไขยังเข้า → `(Confirmed) SYMBOL ⏱️HH:MM 🟢/🔴`
 - 🟢 = Buy, 🔴 = Sell
 
-### Bar Color — 7 สี (Our Version — Acceleration-aware)
+### Bar Color — เฉพาะ M15 เท่านั้น (ยืนยันจากคลิป: M5 ไม่มีสีแท่งเทียน)
+
+มีแค่ **3 สี** เท่านั้น (ยืนยันจากคลิป — ไม่มี Blue, Cyan, Orange, Gray)
 
 
-| สี                  | เงื่อนไข                                                       | ความหมาย                     |
-| ------------------- | -------------------------------------------------------------- | ---------------------------- |
-| **เขียว (Green)**   | EMA bullish + PriceLine > Sentiment + momentum **accelerating** | Strong Bullish — กำลังเร่ง    |
-| **น้ำเงิน (Blue)**  | EMA bullish + PriceLine > Sentiment + momentum **decelerating** | Moderate Bullish — กำลังชะลอ |
-| **ฟ้า (Cyan)**      | EMA 8 > 14 แต่ TDI ยังไม่ชัด                                   | Weak Bullish                 |
-| **แดง (Red)**       | EMA bearish + PriceLine < Sentiment + momentum **accelerating** | Strong Bearish — กำลังเร่ง    |
-| **ส้ม (Orange)**    | EMA bearish + PriceLine < Sentiment + momentum **decelerating** | Moderate Bearish — กำลังชะลอ |
-| **เทา (Gray)**      | Flat EMA / TDI Squeeze / sideways                              | Sideways / Low Volatility    |
-| **เหลือง (Yellow)** | EMA cross ล่าสุด vs TDI ทิศตรงข้าม                             | **Divergence!**              |
+| สี                  | เงื่อนไข                                                       | ความหมาย           |
+| ------------------- | -------------------------------------------------------------- | ------------------ |
+| **เขียว (Green)**   | EMA 8/14 ตัดกันขึ้น **+** Yourbabe ตัดขึ้น (ทิศเดียวกัน)       | Bullish Momentum   |
+| **แดง (Red)**       | EMA 8/14 ตัดกันลง **+** Yourbabe ตัดลง (ทิศเดียวกัน)           | Bearish Momentum   |
+| **เหลือง (Yellow)** | EMA ตัด**ก่อน** + Yourbabe ตัด**ทิศตรงข้าม** (ดูตารางด้านล่าง) | **Divergence!**    |
+| *(ไม่มีสี)*         | ไม่เข้าเงื่อนไขด้านบน                                          | สีปกติของแท่งเทียน |
 
 
-> Green vs Blue = ดูจากการเร่ง/ชะลอของ priceLine (accelerating vs decelerating)
+### Yellow Bar — Divergence (ยืนยันจากคลิป)
 
-### Yellow Bar — Divergence (Day 1)
-
-สำคัญมาก: **EMA ต้องเกิดก่อน Your babe**
+สำคัญมาก: **EMA ต้องตัดก่อน Yourbabe** (ลำดับเวลาสำคัญ)
 
 
-| Yellow Side | เงื่อนไข                                      |
-| ----------- | --------------------------------------------- |
-| Buy side    | EMA 8,14 Crossover + Your babe Cross**under** |
-| Sell side   | EMA 8,14 Crossunder + Your babe Cross**over** |
+| Yellow Side | เงื่อนไข                                     |
+| ----------- | -------------------------------------------- |
+| ฝั่งขาขึ้น  | EMA 8/14 ตัดกัน**ขึ้น** + Yourbabe ตัด**ลง** |
+| ฝั่งขาลง    | EMA 8/14 ตัดกัน**ลง** + Yourbabe ตัด**ขึ้น** |
 
 
-= EMA กับ Oscillator ขัดกัน = **สัญญาณเตือน**
+= EMA กับ Yourbabe ขัดกัน = **สัญญาณเตือน Divergence**
 
-### Momentum Bar (Day 1)
+### Momentum Bar (Day 1 + ยืนยันจากคลิป)
 
+- **Momentum bar เกิดจาก**: EMA 8/14 ตัดกัน **+** Yourbabe ตัด (ทิศเดียวกัน)
+  - ขาขึ้น: EMA 8/14 ตัดขึ้น + Yourbabe ตัดขึ้น → แท่งเขียว (= Green bar)
+  - ขาลง: EMA 8/14 ตัดลง + Yourbabe ตัดลง → แท่งแดง (= Red bar)
 - Momentum ที่สนใจ **ต้องอยู่ในชุดที่ Break Speed line เท่านั้น**
 - เงื่อนไข:
   1. MOM ชุดก่อนหน้าโดนทำลาย (previous momentum set broken)
@@ -355,17 +402,22 @@ CF (Confirmed) → Entry
 ## สิ่งที่ยังไม่แน่ใจ (ต้องดูคลิปเพิ่ม)
 
 
-| หัวข้อ                                | สถานะ        | หมายเหตุ                                              |
-| ------------------------------------- | ------------ | ----------------------------------------------------- |
-| Bar Color — Blue vs Cyan distinction  | ✅ แก้แล้ว    | ใช้ acceleration/deceleration ของ priceLine            |
-| Momentum Candle เงื่อนไขแน่ชัด        | ❓ ประมาณ     | น่าจะ body ใหญ่ + volume                              |
-| Powerful Mode logic                   | ❓ ประมาณ     | น่าจะ filter เข้มขึ้น                                 |
-| "Old version Toggle" ใน Indicator 2.2 | ❓ ไม่ทราบ    | สูตรเก่า vs ใหม่                                      |
-| Speed line คืออะไรแน่                 | ✅ ยืนยันแล้ว | **เส้น trendline ของ pattern ที่ลากเอง** (ไม่ใช่ EMA) |
-| Mountain CG สูตรแน่ชัด                | ❓ ประมาณ     | น่าจะ Center of Gravity ของ RSI                       |
-| TDI parameters ที่แน่นอน              | ✅ แก้แล้ว    | **RSI 13 / Band 31 / Fast 1 / Slow 9** (จาก TDI.pine) |
-| BVS ใน checklist หมายถึงอะไร          | ✅ ยืนยันแล้ว | **Best V Shape** — ดูเองจาก price action              |
-| Signal timing conflict                | ✅ แก้แล้ว    | ใช้ 3-bar window + priceLine แทน sentiment             |
+| หัวข้อ                                | สถานะ           | หมายเหตุ                                                         |
+| ------------------------------------- | --------------- | ---------------------------------------------------------------- |
+| Bar Color M15                         | ✅ ยืนยันจากคลิป | มีแค่ 3 สี: Green, Red, Yellow — **ไม่มี** Blue/Cyan/Orange/Gray |
+| M5 vs M15 แสดงผลต่างกันอย่างไร        | ✅ ยืนยันจากคลิป | M5 มี รวบเส้น + ไม่มีสีแท่ง / M15 มีสีแท่ง + ไม่มีรวบเส้น        |
+| M5 Bar Color                          | ✅ ยืนยันจากคลิป | **M5 ไม่มีสีแท่งเทียน** — Bar Color ใช้เฉพาะ M15                 |
+| M15 data ดึงมาแสดงบน M5               | ✅ ยืนยันจากคลิป | **ไม่มี** — ไม่ได้ดึง M15 sentiment มาแสดง                       |
+| เส้นม่วงใน Yourbabe oscillator        | ✅ ยืนยันจากคลิป | คือ **เส้นกลาง (Middle Band)** ตอนราคาอยู่เหนือ                  |
+| รวบเส้น คือ period อะไรบ้าง           | ✅ ทดลองแล้ว     | 3 เส้น sentiment period **6, 7, 8** — ใกล้เคียงต้นฉบับมากที่สุด  |
+| Momentum Candle เงื่อนไขแน่ชัด        | ❓ ประมาณ        | น่าจะ body ใหญ่ + volume                                         |
+| Powerful Mode logic                   | ❓ ประมาณ        | น่าจะ filter เข้มขึ้น                                            |
+| "Old version Toggle" ใน Indicator 2.2 | ❓ ไม่ทราบ       | สูตรเก่า vs ใหม่                                                 |
+| Speed line คืออะไรแน่                 | ✅ ยืนยันแล้ว    | **เส้น trendline ของ pattern ที่ลากเอง** (ไม่ใช่ EMA)            |
+| Mountain CG สูตรแน่ชัด                | ❓ ประมาณ        | น่าจะ Center of Gravity ของ RSI                                  |
+| TDI parameters ที่แน่นอน              | ✅ แก้แล้ว       | **RSI 13 / Band 31 / Fast 1 / Slow 9** (จาก TDI.pine)            |
+| BVS ใน checklist หมายถึงอะไร          | ✅ ยืนยันแล้ว    | **Best V Shape** — ดูเองจาก price action                         |
+| Signal timing conflict                | ✅ แก้แล้ว       | ใช้ 3-bar window + priceLine แทน sentiment                       |
 
 
 ---
@@ -398,6 +450,6 @@ Middle of Bands = (Upper + Lower) / 2
 
 ---
 
-*สร้างจากการแกะภาพ indicator settings + class notes Day 1-4 + คำอธิบายจากผู้เรียน*
-*Signal logic rebuild (Our Version): research-backed improvements — priceLine > middleBand, 3-bar window, pullback proximity, TDI squeeze*
+*สร้างจากการแกะภาพ indicator settings + class notes Day 1-4 + คำอธิบายจากผู้เรียน + ยืนยันจากคลิป*
+*Full Rebuild: ทำใหม่ทั้ง 3 ไฟล์ตามข้อมูลที่ยืนยันจากคลิป — TF-aware signals, 3-color bar, ruobsen*
 *Last updated: 2026-04-15*
