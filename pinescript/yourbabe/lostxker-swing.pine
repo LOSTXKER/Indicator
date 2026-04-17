@@ -1,0 +1,35 @@
+// LOSTXKER Swing (Standalone)
+// Pivot 2-2 บน high/low (ไส้) — เหมาะกับ price action / pullback break-retest
+//@version=6
+indicator("LX Swing", shorttitle="LX Swing", overlay=true, max_labels_count=500)
+
+// ============================================================================
+// SETTINGS
+// ============================================================================
+string GRP = "SWING DETECTION"
+int    pivLR    = input.int(2, "Pivot Left/Right", minval=1, maxval=10, group=GRP, tooltip="2 = มาตรฐาน, 3+ = หยาบขึ้น")
+color  hiColor  = input.color(color.white, "Swing High Color", group=GRP)
+color  loColor  = input.color(color.white, "Swing Low Color",  group=GRP)
+bool   showLine = input.bool(true, "Show Horizontal Line at Swing", group=GRP)
+int    lineLen  = input.int(10, "Line Length (bars)", minval=2, maxval=50, group=GRP)
+
+// ============================================================================
+// PIVOT DETECTION (high/low wicks)
+// ============================================================================
+float pivHi = ta.pivothigh(high, pivLR, pivLR)
+float pivLo = ta.pivotlow(low, pivLR, pivLR)
+
+// ============================================================================
+// PLOT DOTS (ที่ราคาจริง — ไส้บน/ล่าง)
+// ============================================================================
+plot(not na(pivHi) ? high[pivLR] : na, title="Swing High", color=hiColor, style=plot.style_circles, linewidth=3, offset=-pivLR)
+plot(not na(pivLo) ? low[pivLR]  : na, title="Swing Low",  color=loColor, style=plot.style_circles, linewidth=3, offset=-pivLR)
+
+// ============================================================================
+// HORIZONTAL LINE AT SWING (ช่วยดูว่าราคา retest หรือทะลุ)
+// ============================================================================
+if showLine and not na(pivHi)
+    line.new(bar_index - pivLR, high[pivLR], bar_index - pivLR + lineLen, high[pivLR], color=color.new(hiColor, 50), width=1)
+
+if showLine and not na(pivLo)
+    line.new(bar_index - pivLR, low[pivLR], bar_index - pivLR + lineLen, low[pivLR], color=color.new(loColor, 50), width=1)

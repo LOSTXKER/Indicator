@@ -1,0 +1,148 @@
+// LOSTXKER EMA
+//@version=6
+indicator("LOSTXKER EMA", shorttitle="LX EMA", overlay=true,
+     max_boxes_count=500, max_lines_count=500, max_labels_count=500)
+
+// ============================================================================
+// INPUTS
+// ============================================================================
+
+// ---------- EMA ----------
+string GRP_EMA = "EMA"
+int    emaLen1  = input.int(8,  "EMA 1", group=GRP_EMA)
+int    emaLen2  = input.int(14, "EMA 2", group=GRP_EMA)
+int    emaLen3  = input.int(60, "EMA 3", group=GRP_EMA)
+color  ema3Clr  = input.color(#ffffff, "EMA 60 Color", group=GRP_EMA)
+bool   cloudOn  = input.bool(true,  "EMA Cloud Fill", group=GRP_EMA)
+float  cloudPad = input.float(0.25, "Cloud 14-60 Padding", minval=0.0, maxval=0.45, step=0.05, group=GRP_EMA, tooltip="0 = ติดเส้น, 0.45 = cloud แคบสุด")
+
+// ---------- HTF ----------
+string GRP_HTF = "HTF"
+bool   htfOn  = input.bool(true, "Show HTF EMA 60", group=GRP_HTF, tooltip="แสดง EMA 60 ของ TF สูงกว่า (auto-detect)")
+color  htfClr = input.color(#00bcd4, "HTF Color", group=GRP_HTF)
+
+// ---------- Sessions ----------
+string GRP_SES = "SESSIONS"
+bool   sesOn    = input.bool(true, "Show Sessions", group=GRP_SES, tooltip="รองรับ DST อัตโนมัติ")
+bool   sesLabel = input.bool(true, "Session Labels", group=GRP_SES)
+bool   tokyoOn  = input.bool(true,  "Tokyo (09-18 JST)",   inline="tk", group=GRP_SES)
+color  tokyoClr = input.color(color.new(#1565c0, 92), "",  inline="tk", group=GRP_SES)
+bool   londonOn = input.bool(true,  "London (08-17 LON)",  inline="ld", group=GRP_SES)
+color  londonClr= input.color(color.new(#ff8f00, 92), "",  inline="ld", group=GRP_SES)
+bool   nyOn     = input.bool(true,  "New York (08-17 NY)", inline="ny", group=GRP_SES)
+color  nyClr    = input.color(color.new(#c62828, 92), "",  inline="ny", group=GRP_SES)
+
+// ---------- AOF ----------
+string GRP_AOF = "AOF (Asian Range)"
+bool   aofOn   = input.bool(true, "Show AOF", group=GRP_AOF)
+string aofSess = input.session("0700-1400", "Asian Session (Tokyo)", group=GRP_AOF, tooltip="ใช้เวลา Tokyo (JST, ไม่มี DST)\n• 07:00-14:00 JST = 05:00-12:00 BKK\n• ใช้เป็น S/R ใน London/NY")
+color  aofClr  = input.color(color.new(color.white, 50), "Border Color", group=GRP_AOF)
+
+// ---------- Server Close ----------
+string GRP_SC   = "SERVER CLOSE"
+bool   scOn     = input.bool(true, "Show Close Mark", group=GRP_SC, tooltip="เส้นแนวตั้งแสดงตอน 17:00 New York (DST auto)\n• ทำงานทุก TF (M1 → D)\n• ใช้ boundary crossing detection — ไม่ต้องมีแท่งเปิดตรง 17:00 เป๊ะ")
+color  scClr    = input.color(color.new(#ff5252, 0), "Color", group=GRP_SC)
+int    scWidth  = input.int(2, "Line Width", minval=1, maxval=5, group=GRP_SC)
+
+// ============================================================================
+// EMA — CURRENT TF
+// ============================================================================
+float ema1 = ta.ema(close, emaLen1)
+float ema2 = ta.ema(close, emaLen2)
+float ema3 = ta.ema(close, emaLen3)
+
+color ema2Clr = ema1 > ema2 ? #4caf50 : #f44336
+
+float emaDist   = math.abs(ema2 - ema3)
+float cloudMarg = emaDist * cloudPad
+float ema2Inner = ema2 > ema3 ? ema2 - cloudMarg : ema2 + cloudMarg
+float ema3Inner = ema3 > ema2 ? ema3 - cloudMarg : ema3 + cloudMarg
+
+// ============================================================================
+// HTF EMA 60 (smooth: scale period by TF multiplier)
+// ============================================================================
+int htfMult = switch timeframe.period
+    "1"   => 5
+    "3"   => 5
+    "5"   => 3
+    "15"  => 4
+    "30"  => 2
+    "60"  => 4
+    "240" => 6
+    =>       1
+float htfEma = ta.ema(close, emaLen3 * htfMult)
+
+// ============================================================================
+// PLOTS
+// ============================================================================
+p1  = plot(ema1,      "EMA 8",  color=color.new(color.white, 100), linewidth=2)
+p2  = plot(ema2,      "EMA 14", color=ema2Clr, linewidth=3)
+p3  = plot(ema3,      "EMA 60", color=ema3Clr, linewidth=2)
+p2i = plot(ema2Inner, "Cloud 14 inner", color=color.new(color.white, 100), display=display.none)
+p3i = plot(ema3Inner, "Cloud 60 inner", color=color.new(color.white, 100), display=display.none)
+plot(htfOn ? htfEma : na, "HTF EMA 60", color=htfClr, linewidth=3)
+
+color cloud12 = ema1 > ema2 ? color.new(#2e7d32, 65) : color.new(#c62828, 65)
+color cloud23 = ema2 > ema3 ? color.new(#9c27b0, 80) : color.new(#ff9800, 80)
+fill(p1,  p2,  color=cloudOn ? cloud12 : na, title="Cloud 8-14")
+fill(p2i, p3i, color=cloudOn ? cloud23 : na, title="Cloud 14-60")
+
+// ============================================================================
+// SESSIONS
+// ============================================================================
+drawSession(string sess, string tz, color clr, string lbl) =>
+    bool inSes = not na(time(timeframe.period, sess, tz))
+    var box  b      = na
+    var bool prevIn = false
+    if inSes and not prevIn
+        b := box.new(bar_index, high, bar_index, low, bgcolor=clr, border_color=color.new(clr, 80), border_width=1)
+        if sesLabel
+            label.new(bar_index, high, lbl, color=color.new(color.black, 100), textcolor=color.new(color.white, 30), style=label.style_label_down, size=size.tiny)
+    if inSes
+        box.set_right(b, bar_index)
+        box.set_top(b,    math.max(box.get_top(b),    high))
+        box.set_bottom(b, math.min(box.get_bottom(b), low))
+    prevIn := inSes
+
+if sesOn
+    if tokyoOn
+        drawSession("0900-1800", "Asia/Tokyo",       tokyoClr,  "Tokyo")
+    if londonOn
+        drawSession("0800-1700", "Europe/London",    londonClr, "London")
+    if nyOn
+        drawSession("0800-1700", "America/New_York", nyClr,     "New York")
+
+// ============================================================================
+// AOF — Asian Session Range
+// ============================================================================
+bool aofIn    = not na(time(timeframe.period, aofSess, "Asia/Tokyo"))
+bool aofStart = aofIn and not aofIn[1]
+
+var float aofHi       = na
+var float aofLo       = na
+var int   aofStartBar = na
+var box   aofBox      = na
+
+if aofStart
+    aofHi       := high
+    aofLo       := low
+    aofStartBar := bar_index
+else if aofIn
+    aofHi := math.max(nz(aofHi, high), high)
+    aofLo := math.min(nz(aofLo, low),  low)
+
+if aofOn and not na(aofStartBar)
+    if not na(aofBox)
+        box.delete(aofBox)
+    aofBox := box.new(aofStartBar, aofHi, bar_index, aofLo, bgcolor=color.new(color.white, 100), border_color=aofClr, border_width=1)
+
+// ============================================================================
+// SERVER CLOSE (17:00 New York, DST-aware)
+// ============================================================================
+// ตรวจจับการ "ข้ามผ่าน" เวลา 17:00 NY — ทำงานทุก TF แม้แท่งไม่ align เป๊ะ
+int  scNY     = hour(time_close, "America/New_York")
+int  scNYPrev = nz(scNY[1], scNY)
+bool scCross  = scOn and scNYPrev < 17 and scNY >= 17
+
+if scCross
+    line.new(bar_index, high, bar_index, low, xloc=xloc.bar_index, extend=extend.both, color=scClr, style=line.style_solid, width=scWidth)

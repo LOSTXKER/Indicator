@@ -1,7 +1,7 @@
-// YOUR BABE Signal
+// LOSTXKER Signal
 // TF-aware: M5 signals + M15 bar color & dashboard
 //@version=6
-indicator("YOUR BABE", shorttitle="YB Signal", overlay=true, max_labels_count=500, max_boxes_count=500, max_lines_count=500, max_bars_back=500)
+indicator("LOSTXKER Signal", shorttitle="LX Signal", overlay=true, max_labels_count=500, max_boxes_count=500, max_lines_count=500, max_bars_back=500)
 
 // ============================================================================
 // ALERT TIME
@@ -15,25 +15,23 @@ int    endH       = input.int(1,  "End Time",   inline="et", group=GRP_ALERT)
 int    endMin     = input.int(0,  ":",           inline="et", group=GRP_ALERT)
 
 // ============================================================================
-// SWING DETECTION
+// POWERFUL MODE (M5)
 // ============================================================================
-string GRP_SWING = "SWING DETECTION"
-int    swingLR       = input.int(2, "Swing Pivot (Left/Right)", minval=1, maxval=10, step=1, group=GRP_SWING, tooltip="1 = ละเอียด, 5 = หยาบ")
-bool   swingShowDots = input.bool(true, "Show Swing Dots", group=GRP_SWING)
+string GRP_SW = "POWERFUL MODE (M5)"
+bool   powerfulOn    = input.bool(true, "Powerful Mode (block overextended)", group=GRP_SW, tooltip="กันสัญญาณเบรกเอาต์\n• Buy block: ราคาปิด > จุดสูงสุดของ N แท่งก่อน\n• Sell block: ราคาปิด < จุดต่ำสุดของ N แท่งก่อน")
+int    powerLookback = input.int(11, "Powerful Lookback (bars)", minval=3, maxval=100, group=GRP_SW, tooltip="มองย้อนหลังกี่แท่งเพื่อหา peak / trough\n(ยิ่งสูง = ยิ่ง block ง่าย)")
+bool   powerShowDot  = input.bool(false, "Show Blocked Signal Dot (ม่วง)", group=GRP_SW)
+bool   powerShowRef  = input.bool(false, "Show Powerful Reference Level", group=GRP_SW, tooltip="โชว์เส้นม่วงระดับ peak/trough ที่ใช้เทียบ\n(เอาไว้ดูว่า block ถูกจุดมั้ย)")
 
 // ============================================================================
 // OPTIONAL FILTERS (M5)
 // ============================================================================
 string GRP_OPT = "OPTIONAL (M5)"
-bool   powerfulOn    = input.bool(false, "Powerful Mode (Toggle)", group=GRP_OPT, tooltip="บล็อคแท่งที่ close เกิน swing high/low")
-bool   powerMinDisp  = input.bool(false, "Powerful Minimal Display", group=GRP_OPT)
-bool   fairPriceOn   = input.bool(false, "Fair Price (Toggle)", group=GRP_OPT)
-float  fairPriceX    = input.float(0.3, "Fair Price (x ATR)", minval=0.0, maxval=2.0, step=0.1, inline="fp", group=GRP_OPT, tooltip="low ต้องเคยแตะ EMA14 ± ATR x ค่านี้")
-int    fairPriceLB   = input.int(10, "Lookback", minval=3, maxval=30, step=1, inline="fp", group=GRP_OPT, tooltip="ดูย้อนหลังกี่แท่ง")
-bool   vShapeOn      = input.bool(false, "V-Shape Line Checking (Toggle)", group=GRP_OPT)
-float  vShapePct     = input.float(60, "V-Shape Retracement (%)", minval=30, maxval=90, step=5, group=GRP_OPT, tooltip="ราคาต้อง retrace >= % นี้ของ swing ถึงนับ V-Shape")
-string flatEmaMode   = input.string("OFF", "Flat EMA Detect", options=["OFF", "ON - Hide", "ON - Show"], group=GRP_OPT, tooltip="ON - Hide = ปิดสัญญาณตอน EMA แบน\nON - Show = แสดงสัญญาณแบบ minimal")
-float  flatThresh    = input.float(20, "Flat EMA Threshold (ADX)", minval=5, maxval=50, step=1, group=GRP_OPT, tooltip="ADX ต่ำกว่าค่านี้ = sideway/flat (มาตรฐาน: 20)")
+bool   fairPriceOn   = input.bool(true, "Fair Price (Toggle)", group=GRP_OPT)
+int    fairLookback  = input.int(7, "Fair Price Lookback (bars)", minval=1, maxval=30, group=GRP_OPT, tooltip="ใน N แท่งล่าสุดต้องมีแท่งไหนสักแท่งที่ wick แตะ EMA8\n(pullback เคยแตะ EMA8)")
+bool   fairPriceShow = input.bool(false, "Show Fair Price (EMA8)", group=GRP_OPT, tooltip="โชว์เส้น EMA8 สีส้ม")
+string flatEmaMode   = input.string("ON - Show", "Flat EMA Detect", options=["OFF", "ON - Hide", "ON - Show"], group=GRP_OPT, tooltip="จัดการสัญญาณตอน EMA ยังไม่กาง:\n• OFF = ไม่ทำอะไร\n• ON - Hide = ซ่อนสัญญาณ\n• ON - Show = โชว์ป้าย Buy/Sell สีส้ม")
+float  flatThresh    = input.float(0.5, "Fan Spread (ATR units)", minval=0.1, maxval=5.0, step=0.1, group=GRP_OPT, tooltip="ระยะห่าง EMA8 กับ EMA60 เทียบเป็น ATR\nต่ำกว่าค่านี้ = EMA ยังไม่กาง\n• 0.7 = เข้ม (ส้มน้อย)\n• 1.0 = กลาง\n• 1.5 = หลวม (ส้มเยอะ)")
 
 // ============================================================================
 // BAR COLOR (M15 only)
@@ -50,7 +48,7 @@ string dashLoc  = input.string("Bottom Right", "Location", options=["Top Left", 
 string dashSize = input.string("small", "Size", options=["small", "normal", "large"], group=GRP_DASH)
 
 // ============================================================================
-// TDI (must match yourbabe-indicator.pine)
+// TDI (must match lostxker-indicator.pine)
 // ============================================================================
 string GRP_TDI = "TDI (Match Indicator)"
 int    rsiPeriod   = input.int(13,     "RSI Period",      minval=1, group=GRP_TDI)
@@ -108,28 +106,10 @@ sentiment2    = ta.sma(rsiVal, sent2Period)
 sentiment3    = ta.sma(rsiVal, sent3Period)
 
 // ============================================================================
-// SWING DETECTION MODULE (shared by Powerful + V-Shape)
+// POWERFUL REFERENCE (peak/trough ใน N แท่ง ไม่รวมแท่งปัจจุบัน)
 // ============================================================================
-float pivHi = ta.pivothigh(high, swingLR, swingLR)
-float pivLo = ta.pivotlow(low, swingLR, swingLR)
-
-var float swingA      = na
-var float swingB      = na
-var bool  lastIsHigh  = false
-
-if not na(pivHi)
-    if not lastIsHigh
-        swingA := swingB
-    swingB     := high[swingLR]
-    lastIsHigh := true
-
-if not na(pivLo)
-    if lastIsHigh
-        swingA := swingB
-    swingB     := low[swingLR]
-    lastIsHigh := false
-
-float swingRange = math.abs(nz(swingA) - nz(swingB))
+float powerRefHi = ta.highest(high, powerLookback)[1]
+float powerRefLo = ta.lowest(low,   powerLookback)[1]
 
 // ============================================================================
 // M5 SIGNAL: Price crosses รวบเส้น + sent > bbMa + deep pullback
@@ -160,32 +140,26 @@ bool ybCrossDn = ta.crossunder(priceLine, sentimentMain)
 // ============================================================================
 // FILTERS
 // ============================================================================
-// --- Flat EMA (ADX) ---
-[_, _, adxVal] = ta.dmi(14, 14)
-bool isFlatEma = flatEmaMode != "OFF" and adxVal < flatThresh
+// --- Flat EMA (Alignment + ATR-Relative Spread) — EMA ยังไม่กาง ---
+bool  alignedUp = ema8 > ema14 and ema14 > ema60
+bool  alignedDn = ema8 < ema14 and ema14 < ema60
+bool  aligned   = emaBull ? alignedUp : alignedDn
+float fanATR    = math.abs(ema8 - ema60) / atrVal
+bool  isFlatEma = flatEmaMode != "OFF" and (not aligned or fanATR < flatThresh)
 
-// --- Powerful Mode (close เกิน swing point) ---
+// --- Momentum Bar (สำหรับ Dashboard เท่านั้น) ---
 float bodySize = math.abs(close - open)
 float avgBody  = ta.sma(bodySize, 20)
 bool  isMomBar = bodySize > avgBody * 1.5
 
-bool isPowerCandle = false
-if not na(swingB)
-    if lastIsHigh
-        isPowerCandle := emaBull and close > swingB
-    else
-        isPowerCandle := not emaBull and close < swingB
+// --- Fair Price = pullback swing เคยแตะ EMA8 ใน N แท่งล่าสุด ---
+float swingLo = ta.lowest(low,  fairLookback)
+float swingHi = ta.highest(high, fairLookback)
+bool  isFairPrice = swingLo <= ema8 and swingHi >= ema8
 
-// --- Fair Price (pullback แตะ EMA14 ใน N แท่ง) ---
-float candleLow  = ta.lowest(low, fairPriceLB)
-float candleHigh = ta.highest(high, fairPriceLB)
-bool  isFairPrice = emaBull ? candleLow < ema14 + atrVal * fairPriceX : candleHigh > ema14 - atrVal * fairPriceX
-
-// --- V-Shape (% retracement จาก swing A→B) ---
-float retraceBuy  = swingRange > 0 and not lastIsHigh ? (close - swingB) / swingRange * 100 : 0
-float retraceSell = swingRange > 0 and lastIsHigh ? (swingB - close) / swingRange * 100 : 0
-bool  vShapeBuy   = retraceBuy >= vShapePct
-bool  vShapeSell  = retraceSell >= vShapePct
+// --- Powerful Mode (close เกิน peak/trough ใน N แท่ง) ---
+bool isOverextBuy  = not na(powerRefHi) and close > powerRefHi
+bool isOverextSell = not na(powerRefLo) and close < powerRefLo
 
 // --- Time Filter ---
 string tzStr       = alertTZ >= 0 ? str.format("UTC+{0}", alertTZ) : str.format("UTC{0}", alertTZ)
@@ -203,41 +177,38 @@ if specTimeOn
 // ============================================================================
 // COMBINE FILTERS → SIGNAL
 // ============================================================================
-bool powerOk      = not powerfulOn or not isPowerCandle
 bool fairOk       = not fairPriceOn or isFairPrice
-bool flatHide     = isFlatEma and flatEmaMode == "ON - Hide"
-bool flatShow     = isFlatEma and flatEmaMode == "ON - Show"
-bool flatOk       = not flatHide
-bool vShapeBuyOk  = not vShapeOn or vShapeBuy
-bool vShapeSellOk = not vShapeOn or vShapeSell
+// Flat EMA logic:
+//   ON - Hide: ถ้า flat → block (flatOk = false) → สัญญาณหาย
+//   ON - Show: ถ้า flat → สัญญาณปกติ block, โชว์ minimal signal (ส้ม) แทน
+bool flatBlocksRegular = isFlatEma and (flatEmaMode == "ON - Hide" or flatEmaMode == "ON - Show")
+bool flatOk            = not flatBlocksRegular
+bool flatShowMin       = isFlatEma and flatEmaMode == "ON - Show"
+bool powerBuyOk        = not powerfulOn or not isOverextBuy
+bool powerSellOk       = not powerfulOn or not isOverextSell
 
-bool coreBuy  = isM5 and emaBull and ema14 > ema60 and close > htfEma60 and crossUpAboveMid and deepDip
-bool coreSell = isM5 and not emaBull and ema14 < ema60 and close < htfEma60 and crossDnBelowMid and deepRise
+bool isGreenBar = close > open
+bool isRedBar   = close < open
 
-bool buySignal  = coreBuy  and powerOk and fairOk and flatOk and vShapeBuyOk and inAlertTime
-bool sellSignal = coreSell and powerOk and fairOk and flatOk and vShapeSellOk and inAlertTime
+bool coreBuy  = isM5 and emaBull and ema14 > ema60 and close > htfEma60 and crossUpAboveMid and deepDip and isGreenBar
+bool coreSell = isM5 and not emaBull and ema14 < ema60 and close < htfEma60 and crossDnBelowMid and deepRise and isRedBar
 
-bool buyMinSig  = coreBuy  and flatShow and powerOk and fairOk and vShapeBuyOk and inAlertTime
-bool sellMinSig = coreSell and flatShow and powerOk and fairOk and vShapeSellOk and inAlertTime
+bool buySignal  = coreBuy  and fairOk and flatOk and powerBuyOk  and inAlertTime
+bool sellSignal = coreSell and fairOk and flatOk and powerSellOk and inAlertTime
 
-bool buyPwrMin  = coreBuy  and powerfulOn and isPowerCandle and powerMinDisp and fairOk and flatOk and vShapeBuyOk and inAlertTime
-bool sellPwrMin = coreSell and powerfulOn and isPowerCandle and powerMinDisp and fairOk and flatOk and vShapeSellOk and inAlertTime
+bool buyMinSig  = coreBuy  and flatShowMin and fairOk and powerBuyOk  and inAlertTime
+bool sellMinSig = coreSell and flatShowMin and fairOk and powerSellOk and inAlertTime
+
+bool buyBlocked  = coreBuy  and fairOk and flatOk and isOverextBuy  and powerfulOn and inAlertTime
+bool sellBlocked = coreSell and fairOk and flatOk and isOverextSell and powerfulOn and inAlertTime
 
 // ============================================================================
-// PLOT SWING POINTS
+// PLOT POWERFUL REFERENCE + VALUE ZONE (debug)
 // ============================================================================
-plotshape(swingShowDots and not na(pivHi), title="Swing High", style=shape.circle, location=location.abovebar, color=#ff9800, size=size.tiny, offset=-swingLR)
-plotshape(swingShowDots and not na(pivLo), title="Swing Low",  style=shape.circle, location=location.belowbar, color=#2196f3, size=size.tiny, offset=-swingLR)
+plot(powerShowRef and powerfulOn ? powerRefHi : na, title="Powerful Ref Hi", color=color.new(#9c27b0, 50), style=plot.style_circles, linewidth=1)
+plot(powerShowRef and powerfulOn ? powerRefLo : na, title="Powerful Ref Lo", color=color.new(#9c27b0, 50), style=plot.style_circles, linewidth=1)
 
-// V-Shape retracement line
-float vLineLevel = na
-if vShapeOn and not na(swingA) and not na(swingB) and swingRange > 0
-    if not lastIsHigh
-        vLineLevel := swingB + swingRange * vShapePct / 100
-    else
-        vLineLevel := swingB - swingRange * vShapePct / 100
-
-plot(vShapeOn ? vLineLevel : na, "V-Shape Level", color=color.new(#f44336, 30), style=plot.style_stepline, linewidth=1)
+plot(fairPriceShow ? ema8 : na, title="Fair Price (EMA8)", color=color.new(#ffb300, 0), linewidth=2)
 
 // ============================================================================
 // PLOT SIGNALS
@@ -245,11 +216,11 @@ plot(vShapeOn ? vLineLevel : na, "V-Shape Level", color=color.new(#f44336, 30), 
 plotshape(buySignal,  title="Buy Signal",  style=shape.labeldown, location=location.abovebar, color=#1b5e20, textcolor=#ffffff, text="Buy",  size=size.small)
 plotshape(sellSignal, title="Sell Signal", style=shape.labelup,   location=location.belowbar, color=#b71c1c, textcolor=#ffffff, text="Sell", size=size.small)
 
-plotshape(buyMinSig  and not buySignal,  title="Flat Min Buy",  style=shape.triangleup,   location=location.abovebar, color=color.new(#00e676, 40), size=size.tiny)
-plotshape(sellMinSig and not sellSignal, title="Flat Min Sell", style=shape.triangledown, location=location.belowbar, color=color.new(#ff1744, 40), size=size.tiny)
+plotshape(buyMinSig,  title="Flat Min Buy",  style=shape.labeldown, location=location.abovebar, color=#ff9800, textcolor=#ffffff, text="Buy",  size=size.tiny)
+plotshape(sellMinSig, title="Flat Min Sell", style=shape.labelup,   location=location.belowbar, color=#ff9800, textcolor=#ffffff, text="Sell", size=size.tiny)
 
-plotshape(buyPwrMin  and not buySignal and not buyMinSig,  title="Pwr Min Buy",  style=shape.diamond, location=location.abovebar, color=color.new(#00e676, 50), size=size.tiny)
-plotshape(sellPwrMin and not sellSignal and not sellMinSig, title="Pwr Min Sell", style=shape.diamond, location=location.belowbar, color=color.new(#ff1744, 50), size=size.tiny)
+plotshape(powerShowDot and buyBlocked,  title="Buy Blocked",  style=shape.circle, location=location.abovebar, color=color.new(#9c27b0, 0), size=size.tiny)
+plotshape(powerShowDot and sellBlocked, title="Sell Blocked", style=shape.circle, location=location.belowbar, color=color.new(#9c27b0, 0), size=size.tiny)
 
 // ============================================================================
 // BAR COLOR — M15 ONLY
@@ -283,14 +254,9 @@ barcolor(barCol, title="Bar Color")
 // DASHBOARD — M15 ONLY
 // ============================================================================
 if dashOn and isM15 and barstate.islast
-    bool chkBVS     = vShapeBuy or vShapeSell
-    string bvsText  = vShapeBuy ? "V up" : vShapeSell ? "V dn" : "manual"
-    color  bvsClr   = chkBVS ? #4caf50 : #9e9e9e
-
     float atrNorm    = atrVal / close * 100
     bool  chkPattern = atrNorm < ta.sma(atrNorm, 50)
     bool  chkMOM     = ta.barssince(isMomBar and (close > open ? emaBull : not emaBull)) <= 10
-    bool  chkFair    = candleLow < ema14 + atrVal * 0.5 or candleHigh > ema14 - atrVal * 0.5
     bool  chkFibo    = (close >= math.min(ema14, ema60) and close <= math.max(ema14, ema60)) or math.abs(close - ema14) < atrVal * 1.5
 
     tblPos = switch dashLoc
@@ -307,7 +273,7 @@ if dashOn and isM15 and barstate.islast
     var table dash = na
     dash := table.new(tblPos, 3, 7, bgcolor=color.new(#1e1e1e, 10), border_width=1, border_color=color.new(color.gray, 50))
 
-    table.cell(dash, 0, 0, "YOUR BABE Checklist", text_color=color.white, text_size=tblSz, bgcolor=color.new(#333333, 0), text_halign=text.align_left)
+    table.cell(dash, 0, 0, "LOSTXKER Checklist", text_color=color.white, text_size=tblSz, bgcolor=color.new(#333333, 0), text_halign=text.align_left)
     table.merge_cells(dash, 0, 0, 2, 0)
 
     table.cell(dash, 0, 1, "#",         text_color=color.gray, text_size=tblSz)
@@ -316,7 +282,7 @@ if dashOn and isM15 and barstate.islast
 
     table.cell(dash, 0, 2, "1", text_color=color.white, text_size=tblSz)
     table.cell(dash, 1, 2, "BVS", text_color=color.white, text_size=tblSz, text_halign=text.align_left)
-    table.cell(dash, 2, 2, chkBVS ? bvsText : "manual", text_color=bvsClr, text_size=tblSz)
+    table.cell(dash, 2, 2, "manual", text_color=color.new(color.gray, 0), text_size=tblSz)
 
     table.cell(dash, 0, 3, "2", text_color=color.white, text_size=tblSz)
     table.cell(dash, 1, 3, "Pattern", text_color=color.white, text_size=tblSz, text_halign=text.align_left)
@@ -328,7 +294,7 @@ if dashOn and isM15 and barstate.islast
 
     table.cell(dash, 0, 5, "4", text_color=color.white, text_size=tblSz)
     table.cell(dash, 1, 5, "Fair Price", text_color=color.white, text_size=tblSz, text_halign=text.align_left)
-    table.cell(dash, 2, 5, chkFair ? "OK" : "X", text_color=chkFair ? #4caf50 : #f44336, text_size=tblSz)
+    table.cell(dash, 2, 5, isFairPrice ? "OK" : "X", text_color=isFairPrice ? #4caf50 : #f44336, text_size=tblSz)
 
     table.cell(dash, 0, 6, "5", text_color=color.white, text_size=tblSz)
     table.cell(dash, 1, 6, "Fibo Zone", text_color=color.white, text_size=tblSz, text_halign=text.align_left)

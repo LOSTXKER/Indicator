@@ -1,0 +1,128 @@
+// LOSTXKER Indicator
+// TDI-based: Price Line + Sentiment + ruobsen(3) + Middle Band + Mountain fills
+//@version=6
+indicator("LOSTXKER Indicator", shorttitle="LX Indicator", overlay=false, max_bars_back=500)
+
+// ============================================================================
+// INPUTS
+// ============================================================================
+
+// ---------- TDI ----------
+string GRP_TDI = "TDI SETTINGS"
+int    rsiPeriod = input.int(13,      "RSI Period",     minval=1, group=GRP_TDI)
+int    bandLen   = input.int(31,      "Band Length",    minval=1, group=GRP_TDI)
+float  bandMult  = input.float(1.6185, "Band Multiplier", step=0.001, group=GRP_TDI)
+
+// ---------- Lines ----------
+string GRP_LINE = "LINE SETTINGS"
+int pricePeriod = input.int(1, "Price Line Period",      minval=1, group=GRP_LINE, tooltip="SMA of RSI — period 1 = raw RSI")
+int sentPeriod  = input.int(8, "Sentiment Period (M15)", minval=1, group=GRP_LINE)
+int sent1Period = input.int(6, "รวบเส้น 1 Period",        minval=1, group=GRP_LINE)
+int sent2Period = input.int(8, "รวบเส้น 2 Period",        minval=1, group=GRP_LINE)
+int sent3Period = input.int(9, "รวบเส้น 3 Period",        minval=1, group=GRP_LINE)
+
+// ---------- Colors ----------
+string GRP_CLR = "COLORS"
+color priceUpClr = input.color(#4caf50, "Price Up",      inline="pc", group=GRP_CLR)
+color priceDnClr = input.color(#f44336, "Price Down",    inline="pc", group=GRP_CLR)
+color midBullClr = input.color(#9c27b0, "Middle Bull",   inline="mb", group=GRP_CLR)
+color midBearClr = input.color(#ff9800, "Middle Bear",   inline="mb", group=GRP_CLR)
+color midNeutClr = input.color(#ffeb3b, "Middle Neut",   inline="mb", group=GRP_CLR)
+color mtnBullClr = input.color(#2ec4b6, "Mountain Bull", inline="mt", group=GRP_CLR)
+color mtnBearClr = input.color(#e8831a, "Mountain Bear", inline="mt", group=GRP_CLR)
+
+// ---------- Display ----------
+string GRP_DISP = "DISPLAY"
+bool mtnOn   = input.bool(true,  "Mountain Fills", group=GRP_DISP)
+bool bandsOn = input.bool(false, "Show BB Bands",  group=GRP_DISP)
+
+// ============================================================================
+// CALCULATIONS
+// ============================================================================
+bool isM15 = timeframe.period == "15"
+
+float rsiVal = ta.rsi(close, rsiPeriod)
+
+// BB (Middle Band + optional upper/lower)
+float bbMa      = ta.sma(rsiVal, bandLen)
+float bbStd     = ta.stdev(rsiVal, bandLen)
+float upperBand = bbMa + bandMult * bbStd
+float lowerBand = bbMa - bandMult * bbStd
+
+// Price + sentiment lines
+float priceLine = ta.sma(rsiVal, pricePeriod)
+float sentMain  = ta.sma(rsiVal, sentPeriod)
+float sent1     = ta.sma(rsiVal, sent1Period)
+float sent2     = ta.sma(rsiVal, sent2Period)
+float sent3     = ta.sma(rsiVal, sent3Period)
+
+// ============================================================================
+// PRICE LINE COLOR
+// ============================================================================
+// M5:  persistent state — flips when priceLine crosses ANY ruobsen
+// M15: direct compare — priceLine vs sentMain
+crossUp(float a, float b) => a > b and a[1] <= b[1]
+crossDn(float a, float b) => a < b and a[1] >= b[1]
+
+// Evaluate each cross separately (avoid short-circuit on history-dependent calls)
+bool up1 = crossUp(priceLine, sent1)
+bool up2 = crossUp(priceLine, sent2)
+bool up3 = crossUp(priceLine, sent3)
+bool dn1 = crossDn(priceLine, sent1)
+bool dn2 = crossDn(priceLine, sent2)
+bool dn3 = crossDn(priceLine, sent3)
+
+bool priceCrossUp = up1 or up2 or up3
+bool priceCrossDn = dn1 or dn2 or dn3
+
+var bool priceIsUp = true
+if priceCrossUp
+    priceIsUp := true
+else if priceCrossDn
+    priceIsUp := false
+
+color priceClr = isM15 ? (priceLine > sentMain ? priceUpClr : priceDnClr) : (priceIsUp ? priceUpClr : priceDnClr)
+
+// ============================================================================
+// รวบเส้น + MIDDLE BAND COLORS (M5 only)
+// ============================================================================
+// 3-state based on whether all 3 ruobsen lines are above/below Middle Band
+bool allAbove = sent1 > bbMa and sent2 > bbMa and sent3 > bbMa
+bool allBelow = sent1 < bbMa and sent2 < bbMa and sent3 < bbMa
+
+color ruobsenClr = allAbove ? color.new(mtnBullClr, 0) : allBelow ? color.new(mtnBearClr, 0) : color.new(mtnBearClr, 40)
+color midClr     = allAbove ? midBullClr              : allBelow ? midBearClr              : midNeutClr
+
+// Mountain fill range (min/max of the 3 ruobsen)
+float sentHi = math.max(sent1, math.max(sent2, sent3))
+float sentLo = math.min(sent1, math.min(sent2, sent3))
+
+// ============================================================================
+// PLOTS
+// ============================================================================
+pPlot   = plot(priceLine,              "Price Line",  color=priceClr, linewidth=2)
+smPlot  = plot(isM15 ? sentMain : na,  "Sentiment",   color=color.new(#ff9800, 0), linewidth=1)
+s1Plot  = plot(isM15 ? na : sent1,     "รวบเส้น 1",   color=ruobsenClr, linewidth=1)
+s2Plot  = plot(isM15 ? na : sent2,     "รวบเส้น 2",   color=ruobsenClr, linewidth=1)
+s3Plot  = plot(isM15 ? na : sent3,     "รวบเส้น 3",   color=ruobsenClr, linewidth=1)
+midPlot = plot(isM15 ? na : bbMa,      "Middle Band", color=midClr, linewidth=2)
+hiPlot  = plot(isM15 ? na : sentHi,    "Sent High",   color=color.new(color.white, 100), display=display.none)
+loPlot  = plot(isM15 ? na : sentLo,    "Sent Low",    color=color.new(color.white, 100), display=display.none)
+
+plot(bandsOn ? upperBand : na, "Upper Band", color=color.new(#2196f3, 70))
+plot(bandsOn ? lowerBand : na, "Lower Band", color=color.new(#2196f3, 70))
+
+// ============================================================================
+// MOUNTAIN FILL (M5 only)
+// ============================================================================
+color mtnFill = (mtnOn and not isM15) ? (allAbove ? color.new(mtnBullClr, 30) : allBelow ? color.new(mtnBearClr, 30) : color.new(mtnBearClr, 60)) : na
+fill(hiPlot, loPlot, color=mtnFill, title="Mountain")
+
+// ============================================================================
+// HLINES
+// ============================================================================
+hline(80, "Extremely Overbought", color=color.new(color.gray, 60))
+hline(70, "Overbought",           color=color.new(color.gray, 60))
+hline(50, "Midline",              color=color.new(color.gray, 40), linestyle=hline.style_solid)
+hline(30, "Oversold",             color=color.new(color.gray, 60))
+hline(20, "Extremely Oversold",   color=color.new(color.gray, 60))
