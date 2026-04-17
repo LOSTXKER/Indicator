@@ -253,11 +253,15 @@ barcolor(barCol, title="Bar Color")
 // ============================================================================
 // DASHBOARD — M15 ONLY
 // ============================================================================
+// Precompute history-dependent series at global scope so they update every bar
+float dashAtrNorm     = atrVal / close * 100
+float dashAtrNormSma  = ta.sma(dashAtrNorm, 50)
+int   dashMomBarsAgo  = ta.barssince(isMomBar and (close > open ? emaBull : not emaBull))
+
 if dashOn and isM15 and barstate.islast
-    float atrNorm    = atrVal / close * 100
-    bool  chkPattern = atrNorm < ta.sma(atrNorm, 50)
-    bool  chkMOM     = ta.barssince(isMomBar and (close > open ? emaBull : not emaBull)) <= 10
-    bool  chkFibo    = (close >= math.min(ema14, ema60) and close <= math.max(ema14, ema60)) or math.abs(close - ema14) < atrVal * 1.5
+    bool chkPattern = dashAtrNorm < dashAtrNormSma
+    bool chkMOM     = dashMomBarsAgo <= 10
+    bool chkFibo    = (close >= math.min(ema14, ema60) and close <= math.max(ema14, ema60)) or math.abs(close - ema14) < atrVal * 1.5
 
     tblPos = switch dashLoc
         "Top Left"     => position.top_left
@@ -301,7 +305,9 @@ if dashOn and isM15 and barstate.islast
     table.cell(dash, 2, 6, chkFibo ? "OK" : "X", text_color=chkFibo ? #4caf50 : #f44336, text_size=tblSz)
 
 // ============================================================================
-// ALERTS
+// ALERTS (JSON payload for LINE webhook proxy)
+//   Endpoint : https://line-webhook-proxy-one.vercel.app/api/trading-alert
+//   Schema   : { type, dir, pair, tf, price, time }
 // ============================================================================
 string timeStr = str.format("{0,number,00}:{1,number,00}", hour(time, tzStr), minute(time, tzStr))
 
@@ -310,15 +316,24 @@ bool ncSell = sellSignal and not barstate.isconfirmed
 bool cfBuy  = buySignal  and barstate.isconfirmed
 bool cfSell = sellSignal and barstate.isconfirmed
 
-if ncBuy
-    alert("(Not confirm) " + syminfo.ticker + " ⏱️" + timeStr + " 🟢", alert.freq_once_per_bar)
-if cfBuy
-    alert("(Confirmed) " + syminfo.ticker + " ⏱️" + timeStr + " 🟢", alert.freq_once_per_bar_close)
-if ncSell
-    alert("(Not confirm) " + syminfo.ticker + " ⏱️" + timeStr + " 🔴", alert.freq_once_per_bar)
-if cfSell
-    alert("(Confirmed) " + syminfo.ticker + " ⏱️" + timeStr + " 🔴", alert.freq_once_per_bar_close)
+makeAlertJson(string tpe, string dir) =>
+    '{"type":"' + tpe
+     + '","dir":"' + dir
+     + '","pair":"' + syminfo.ticker
+     + '","tf":"' + timeframe.period
+     + '","price":"' + str.tostring(close, format.mintick)
+     + '","time":"' + timeStr
+     + '"}'
 
-alertcondition(cfBuy,           title="CF Buy",        message='(Confirmed) {{ticker}} 🟢')
-alertcondition(cfSell,          title="CF Sell",       message='(Confirmed) {{ticker}} 🔴')
-alertcondition(cfBuy or cfSell, title="All Confirmed", message='{{ticker}} Signal')
+if ncBuy
+    alert(makeAlertJson("NOT_CONFIRM", "BULL"), alert.freq_once_per_bar)
+if cfBuy
+    alert(makeAlertJson("CONFIRMED",   "BULL"), alert.freq_once_per_bar_close)
+if ncSell
+    alert(makeAlertJson("NOT_CONFIRM", "BEAR"), alert.freq_once_per_bar)
+if cfSell
+    alert(makeAlertJson("CONFIRMED",   "BEAR"), alert.freq_once_per_bar_close)
+
+alertcondition(cfBuy,           title="CF Buy",        message='{"type":"CONFIRMED","dir":"BULL","pair":"{{ticker}}","tf":"{{interval}}","price":"{{close}}"}')
+alertcondition(cfSell,          title="CF Sell",       message='{"type":"CONFIRMED","dir":"BEAR","pair":"{{ticker}}","tf":"{{interval}}","price":"{{close}}"}')
+alertcondition(cfBuy or cfSell, title="All Confirmed", message='{"type":"CONFIRMED","dir":"ANY","pair":"{{ticker}}","tf":"{{interval}}","price":"{{close}}"}')

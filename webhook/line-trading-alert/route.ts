@@ -11,54 +11,57 @@
 //
 // TradingView Alert Webhook URL:
 //   https://line-webhook-proxy-one.vercel.app/api/trading-alert
+//
+// Pine Script ส่ง payload แบบนี้:
+//   { "type": "NOT_CONFIRM" | "CONFIRMED",
+//     "dir":  "BULL" | "BEAR",
+//     "pair": "EURUSD",
+//     "tf":   "5",
+//     "price": "1.0850",
+//     "time": "14:30" }
 // ===================================================================
 
 import { NextRequest, NextResponse } from "next/server";
 
 const LINE_PUSH_URL = "https://api.line.me/v2/bot/message/push";
 
+type AlertType = "NOT_CONFIRM" | "CONFIRMED" | string;
+type AlertDir  = "BULL" | "BEAR" | string;
+
 interface TradingAlert {
-  type?: string;
-  dir?: string;
+  type?: AlertType;
+  dir?:  AlertDir;
   pair?: string;
-  tf?: string;
+  tf?:   string;
   price?: string;
   time?: string;
 }
 
 function formatAlert(data: TradingAlert): string {
-  const dir = data.dir || "?";
-  const pair = data.pair || "?";
-  const price = data.price || "?";
-  const tf = data.tf || "H1";
-  const time = data.time || new Date().toISOString().slice(0, 16);
+  const type = (data.type || "CONFIRMED").toUpperCase();
+  const dir  = (data.dir  || "").toUpperCase();
+  const pair = data.pair  || "?";
+  const time = data.time  || new Date().toISOString().slice(11, 16);
 
-  const emoji = dir === "BULL" ? "🟢" : "🔴";
-  const arrow = dir === "BULL" ? "▲ Bull Pullback" : "▼ Bear Pullback";
+  const isConfirmed = type === "CONFIRMED";
+  const isBull      = dir  === "BULL";
 
-  return [
-    `${emoji} H1 Pullback Confirmed!`,
-    `━━━━━━━━━━━━━━━━━━`,
-    `📊 ${pair}`,
-    `📍 ${arrow}`,
-    `💰 Price: ${price}`,
-    `⏰ TF: ${tf}`,
-    `🕐 ${time}`,
-    `━━━━━━━━━━━━━━━━━━`,
-    `เตรียมหาจุดเข้า M15/M5`,
-  ].join("\n");
+  const label  = isConfirmed ? "(Confirmed)" : "(Not confirm)";
+  const dotEmj = isBull ? "🟢" : "🔴";
+  const cta    = isConfirmed
+    ? "✅ เตรียมหาจุดเข้า M15/M5"
+    : "⏳ รอแท่งปิดยืนยัน";
+
+  return `${label} ${pair} ⏰ ${time} ${dotEmj}\n${cta}`;
 }
 
 export async function POST(request: NextRequest) {
-  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  const token   = process.env.LINE_CHANNEL_ACCESS_TOKEN;
   const groupId = process.env.LINE_TRADING_GROUP_ID;
 
   if (!token || !groupId) {
     console.error("[trading-alert] Missing LINE_CHANNEL_ACCESS_TOKEN or LINE_TRADING_GROUP_ID");
-    return NextResponse.json(
-      { error: "Server not configured" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Server not configured" }, { status: 500 });
   }
 
   const raw = await request.text();
