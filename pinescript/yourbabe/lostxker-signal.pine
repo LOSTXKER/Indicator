@@ -27,8 +27,11 @@ bool   powerShowRef  = input.bool(false, "Show Powerful Reference Level", group=
 // OPTIONAL FILTERS (M5)
 // ============================================================================
 string GRP_OPT = "OPTIONAL (M5)"
+bool   htfFilterOn   = input.bool(true, "HTF EMA60 Filter (Toggle)", group=GRP_OPT, tooltip="บังคับไส้แท่งฝั่งเดียวกับเทรนด์ใหญ่\n• Buy: high > EMA60 ของ M15 (ไส้บนแตะ cyan)\n• Sell: low < EMA60 ของ M15 (ไส้ล่างแตะ cyan)\n\nปิด = รับสัญญาณแม้เทรนด์ HTF สวนทาง (ไวขึ้น แต่เสี่ยง counter-trend)")
+bool   htfShow       = input.bool(false, "Show HTF EMA60 (cyan)", group=GRP_OPT, tooltip="โชว์เส้น cyan ที่ใช้เป็น HTF filter")
 bool   fairPriceOn   = input.bool(true, "Fair Price (Toggle)", group=GRP_OPT)
 int    fairLookback  = input.int(7, "Fair Price Lookback (bars)", minval=1, maxval=30, group=GRP_OPT, tooltip="ใน N แท่งล่าสุดต้องมีแท่งไหนสักแท่งที่ wick แตะ EMA8\n(pullback เคยแตะ EMA8)")
+int    tdiDipLookback = input.int(10, "TDI Pullback Lookback (bars)", minval=2, maxval=50, group=GRP_OPT, tooltip="ใน N แท่งล่าสุดบน panel TDI\nต้องมี priceLine เคยดิ่งลง (Buy) / ดีดขึ้น (Sell) แตะกลุ่ม ruobsen\n• ต่ำ = เข้มขึ้น (pullback ต้องเพิ่งเกิด)\n• สูง = เบาลง")
 bool   fairPriceShow = input.bool(false, "Show Fair Price (EMA8)", group=GRP_OPT, tooltip="โชว์เส้น EMA8 สีส้ม")
 string flatEmaMode   = input.string("ON - Show", "Flat EMA Detect", options=["OFF", "ON - Hide", "ON - Show"], group=GRP_OPT, tooltip="จัดการสัญญาณตอน EMA ยังไม่กาง:\n• OFF = ไม่ทำอะไร\n• ON - Hide = ซ่อนสัญญาณ\n• ON - Show = โชว์ป้าย Buy/Sell สีส้ม")
 float  flatThresh    = input.float(0.5, "Fan Spread (ATR units)", minval=0.1, maxval=5.0, step=0.1, group=GRP_OPT, tooltip="ระยะห่าง EMA8 กับ EMA60 เทียบเป็น ATR\nต่ำกว่าค่านี้ = EMA ยังไม่กาง\n• 0.7 = เข้ม (ส้มน้อย)\n• 1.0 = กลาง\n• 1.5 = หลวม (ส้มเยอะ)")
@@ -124,8 +127,8 @@ bool xDn2 = ta.crossunder(priceLine, sentiment2) and sentiment2 < bbMa
 bool xDn3 = ta.crossunder(priceLine, sentiment3) and sentiment3 < bbMa
 bool crossDnBelowMid = xDn1 or xDn2 or xDn3
 
-float pLineRecentLow  = ta.lowest(priceLine, 10)
-float pLineRecentHigh = ta.highest(priceLine, 10)
+float pLineRecentLow  = ta.lowest(priceLine, tdiDipLookback)
+float pLineRecentHigh = ta.highest(priceLine, tdiDipLookback)
 float sentHi = math.max(sentiment1, math.max(sentiment2, sentiment3))
 float sentLo = math.min(sentiment1, math.min(sentiment2, sentiment3))
 bool  deepDip  = pLineRecentLow < sentHi
@@ -190,8 +193,11 @@ bool powerSellOk       = not powerfulOn or not isOverextSell
 bool isGreenBar = close > open
 bool isRedBar   = close < open
 
-bool coreBuy  = isM5 and emaBull and ema14 > ema60 and close > htfEma60 and crossUpAboveMid and deepDip and isGreenBar
-bool coreSell = isM5 and not emaBull and ema14 < ema60 and close < htfEma60 and crossDnBelowMid and deepRise and isRedBar
+bool htfBuyOk  = not htfFilterOn or high > htfEma60
+bool htfSellOk = not htfFilterOn or low  < htfEma60
+
+bool coreBuy  = isM5 and emaBull and ema14 > ema60 and htfBuyOk  and crossUpAboveMid and deepDip and isGreenBar
+bool coreSell = isM5 and not emaBull and ema14 < ema60 and htfSellOk and crossDnBelowMid and deepRise and isRedBar
 
 bool buySignal  = coreBuy  and fairOk and flatOk and powerBuyOk  and inAlertTime
 bool sellSignal = coreSell and fairOk and flatOk and powerSellOk and inAlertTime
@@ -209,6 +215,7 @@ plot(powerShowRef and powerfulOn ? powerRefHi : na, title="Powerful Ref Hi", col
 plot(powerShowRef and powerfulOn ? powerRefLo : na, title="Powerful Ref Lo", color=color.new(#9c27b0, 50), style=plot.style_circles, linewidth=1)
 
 plot(fairPriceShow ? ema8 : na, title="Fair Price (EMA8)", color=color.new(#ffb300, 0), linewidth=2)
+plot(htfShow ? htfEma60 : na, title="HTF EMA60", color=color.new(#00bcd4, 0), linewidth=2)
 
 // ============================================================================
 // PLOT SIGNALS
