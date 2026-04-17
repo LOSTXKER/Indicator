@@ -1,0 +1,276 @@
+// LOSTXKER Strategy (Baseline)
+// Pullback Break-Retest with ATR SL + Fixed R:R TP + % risk sizing
+// Mirrors signal logic from lostxker-signal.pine
+//@version=6
+strategy(
+     title                   = "LOSTXKER Strategy",
+     shorttitle              = "LX Strat",
+     overlay                 = true,
+     initial_capital         = 10000,
+     currency                = currency.USD,
+     default_qty_type        = strategy.percent_of_equity,
+     default_qty_value       = 10,
+     commission_type         = strategy.commission.percent,
+     commission_value        = 0.005,
+     slippage                = 2,
+     pyramiding              = 0,
+     calc_on_every_tick      = false,
+     calc_on_order_fills     = false,
+     process_orders_on_close = true,
+     max_labels_count        = 500,
+     max_boxes_count         = 500,
+     max_lines_count         = 500)
+
+// ============================================================================
+// STRATEGY SETTINGS
+// ============================================================================
+string GRP_ST = "STRATEGY"
+string sizeMode       = input.string("Percent of Equity", "Position Sizing", options=["Percent of Equity", "Risk-Based (% of equity)"], group=GRP_ST, tooltip="Percent = ใช้ qty จาก strategy() default (เรียบง่าย)\nRisk-Based = คำนวณ qty ตาม SL distance (มืออาชีพ)")
+float  riskPct        = input.float(1.0, "Risk per trade (%) — Risk-Based mode",    minval=0.1, maxval=10, step=0.1, group=GRP_ST)
+float  atrSlMult      = input.float(1.5, "Stop Loss (ATR mult)",  minval=0.5, maxval=5, step=0.1,  group=GRP_ST, tooltip="SL = entry - (N × ATR14)")
+float  rrRatio        = input.float(2.0, "Take Profit (R:R)",     minval=0.5, maxval=5, step=0.1,  group=GRP_ST, tooltip="TP = entry + (R:R × SL distance)\n• 1.5 = TP 1.5R\n• 2.0 ★ baseline\n• 3.0 = big win rare")
+int    maxBarsTrade   = input.int(40, "Max Bars in Trade",        minval=5, maxval=200,             group=GRP_ST, tooltip="ปิดเทรดถ้าถือเกิน N แท่ง (M5: 40 = ~3.3 ชม.)")
+bool   exitOnReverse  = input.bool(false, "Close on Opposite Signal", group=GRP_ST, tooltip="ปิดเทรดถ้ามีสัญญาณตรงข้ามเกิด")
+bool   useConfirmed   = input.bool(true, "Enter on CONFIRMED only", group=GRP_ST, tooltip="เข้าเมื่อแท่งปิด (no repaint)\nปิด = เข้าทันทีตอน NOT_CONFIRM")
+bool   debugLabels    = input.bool(false, "Show Debug Labels", group=GRP_ST, tooltip="แสดง label แสดง SL/TP/qty ที่คำนวณ\nใช้ตอน debug")
+
+// ============================================================================
+// ALERT TIME
+// ============================================================================
+string GRP_ALERT = "ALERT TIME"
+bool   specTimeOn = input.bool(false, "Specific Time Alert (On/Off)", group=GRP_ALERT, tooltip="เปิดทีหลังเมื่อจะกรองตาม session")
+int    alertTZ    = input.int(7,  "Time zone UTC+", minval=-12, maxval=14, group=GRP_ALERT)
+int    startH     = input.int(7,  "Start Time", inline="st", group=GRP_ALERT)
+int    startMin   = input.int(30, ":",           inline="st", group=GRP_ALERT)
+int    endH       = input.int(1,  "End Time",   inline="et", group=GRP_ALERT)
+int    endMin     = input.int(0,  ":",           inline="et", group=GRP_ALERT)
+
+// ============================================================================
+// POWERFUL MODE (M5)
+// ============================================================================
+string GRP_SW = "POWERFUL MODE (M5)"
+bool   powerfulOn    = input.bool(false, "Powerful Mode (block overextended)", group=GRP_SW, tooltip="เปิดทีหลังเพื่อดู effect")
+int    powerLookback = input.int(11, "Powerful Lookback (bars)", minval=3, maxval=100, group=GRP_SW)
+
+// ============================================================================
+// OPTIONAL FILTERS (M5)
+// ============================================================================
+string GRP_OPT = "OPTIONAL (M5)"
+bool   htfFilterOn   = input.bool(false, "HTF EMA60 Filter (Toggle)",  group=GRP_OPT, tooltip="เปิดทีหลังเพื่อกรอง counter-trend")
+bool   fairPriceOn   = input.bool(false, "Fair Price (Toggle)",        group=GRP_OPT, tooltip="เปิดทีหลังเพื่อบังคับ pullback แตะ EMA8")
+int    fairLookback  = input.int(7, "Fair Price Lookback (bars)",      minval=1, maxval=30, group=GRP_OPT)
+int    tdiDipLookback = input.int(10, "TDI Pullback Lookback (bars)",  minval=2, maxval=50, group=GRP_OPT)
+string flatEmaMode   = input.string("OFF", "Flat EMA Detect",          options=["OFF", "ON - Hide"], group=GRP_OPT, tooltip="เปิดทีหลัง (ON - Hide) เพื่อกันช่วง EMA ยังไม่กาง")
+float  flatThresh    = input.float(0.5, "Fan Spread (ATR units)",      minval=0.1, maxval=5.0, step=0.1, group=GRP_OPT)
+
+// ============================================================================
+// TDI (must match indicator)
+// ============================================================================
+string GRP_TDI = "TDI (Match Indicator)"
+int    rsiPeriod   = input.int(13, "RSI Period",      minval=1, group=GRP_TDI)
+int    bandLen     = input.int(31, "Band Length",     minval=1, group=GRP_TDI)
+int    pricePeriod = input.int(1,  "Price Period",    minval=1, group=GRP_TDI)
+int    sent1Period = input.int(6,  "รวบเส้น 1",        minval=1, group=GRP_TDI)
+int    sent2Period = input.int(8,  "รวบเส้น 2",        minval=1, group=GRP_TDI)
+int    sent3Period = input.int(9,  "รวบเส้น 3",        minval=1, group=GRP_TDI)
+
+// ============================================================================
+// TF DETECTION
+// ============================================================================
+bool isM5 = timeframe.period == "5"
+
+// ============================================================================
+// EMA + HTF
+// ============================================================================
+ema8  = ta.ema(close, 8)
+ema14 = ta.ema(close, 14)
+ema60 = ta.ema(close, 60)
+
+htfMult = switch timeframe.period
+    "1"   => 5
+    "3"   => 5
+    "5"   => 3
+    "15"  => 4
+    "30"  => 2
+    "60"  => 4
+    "240" => 6
+    =>       1
+
+float htfEma60 = ta.ema(close, 60 * htfMult)
+float atrVal   = ta.atr(14)
+
+bool ema8x14up = ta.crossover(ema8, ema14)
+bool ema8x14dn = ta.crossunder(ema8, ema14)
+
+var bool emaBull = false
+if ema8x14up
+    emaBull := true
+if ema8x14dn
+    emaBull := false
+
+// ============================================================================
+// TDI
+// ============================================================================
+rsiVal     = ta.rsi(close, rsiPeriod)
+bbMa       = ta.sma(rsiVal, bandLen)
+priceLine  = ta.sma(rsiVal, pricePeriod)
+sentiment1 = ta.sma(rsiVal, sent1Period)
+sentiment2 = ta.sma(rsiVal, sent2Period)
+sentiment3 = ta.sma(rsiVal, sent3Period)
+
+// ============================================================================
+// POWERFUL REFERENCE
+// ============================================================================
+float powerRefHi = ta.highest(high, powerLookback)[1]
+float powerRefLo = ta.lowest(low,   powerLookback)[1]
+
+// ============================================================================
+// M5 CROSS LOGIC
+// ============================================================================
+bool xUp1 = ta.crossover(priceLine, sentiment1) and sentiment1 > bbMa
+bool xUp2 = ta.crossover(priceLine, sentiment2) and sentiment2 > bbMa
+bool xUp3 = ta.crossover(priceLine, sentiment3) and sentiment3 > bbMa
+bool crossUpAboveMid = xUp1 or xUp2 or xUp3
+
+bool xDn1 = ta.crossunder(priceLine, sentiment1) and sentiment1 < bbMa
+bool xDn2 = ta.crossunder(priceLine, sentiment2) and sentiment2 < bbMa
+bool xDn3 = ta.crossunder(priceLine, sentiment3) and sentiment3 < bbMa
+bool crossDnBelowMid = xDn1 or xDn2 or xDn3
+
+float pLineRecentLow  = ta.lowest(priceLine, tdiDipLookback)
+float pLineRecentHigh = ta.highest(priceLine, tdiDipLookback)
+float sentHi = math.max(sentiment1, math.max(sentiment2, sentiment3))
+float sentLo = math.min(sentiment1, math.min(sentiment2, sentiment3))
+bool  deepDip  = pLineRecentLow  < sentHi
+bool  deepRise = pLineRecentHigh > sentLo
+
+// ============================================================================
+// FILTERS
+// ============================================================================
+bool  alignedUp = ema8 > ema14 and ema14 > ema60
+bool  alignedDn = ema8 < ema14 and ema14 < ema60
+bool  aligned   = emaBull ? alignedUp : alignedDn
+float fanATR    = math.abs(ema8 - ema60) / atrVal
+bool  isFlatEma = flatEmaMode != "OFF" and (not aligned or fanATR < flatThresh)
+
+float swingLo = ta.lowest(low,  fairLookback)
+float swingHi = ta.highest(high, fairLookback)
+bool  isFairPrice = swingLo <= ema8 and swingHi >= ema8
+
+bool isOverextBuy  = not na(powerRefHi) and close > powerRefHi
+bool isOverextSell = not na(powerRefLo) and close < powerRefLo
+
+string tzStr       = alertTZ >= 0 ? str.format("UTC+{0}", alertTZ) : str.format("UTC{0}", alertTZ)
+int    currentMins = hour(time, tzStr) * 60 + minute(time, tzStr)
+int    startMins   = startH * 60 + startMin
+int    endMins     = endH * 60 + endMin
+
+bool inAlertTime = true
+if specTimeOn
+    if startMins < endMins
+        inAlertTime := currentMins >= startMins and currentMins <= endMins
+    else
+        inAlertTime := currentMins >= startMins or currentMins <= endMins
+
+// ============================================================================
+// SIGNAL (combine all)
+// ============================================================================
+bool htfBuyOk    = not htfFilterOn or high > htfEma60
+bool htfSellOk   = not htfFilterOn or low  < htfEma60
+bool fairOk      = not fairPriceOn or isFairPrice
+bool flatOk      = not isFlatEma
+bool powerBuyOk  = not powerfulOn or not isOverextBuy
+bool powerSellOk = not powerfulOn or not isOverextSell
+
+bool isGreenBar = close > open
+bool isRedBar   = close < open
+
+bool coreBuy  = isM5 and emaBull and ema14 > ema60 and htfBuyOk  and crossUpAboveMid and deepDip and isGreenBar
+bool coreSell = isM5 and not emaBull and ema14 < ema60 and htfSellOk and crossDnBelowMid and deepRise and isRedBar
+
+bool buySignal  = coreBuy  and fairOk and flatOk and powerBuyOk  and inAlertTime
+bool sellSignal = coreSell and fairOk and flatOk and powerSellOk and inAlertTime
+
+// ============================================================================
+// STRATEGY ENTRY / EXIT
+// ============================================================================
+// Entry trigger
+bool enterBuy  = useConfirmed ? (buySignal  and barstate.isconfirmed) : buySignal
+bool enterSell = useConfirmed ? (sellSignal and barstate.isconfirmed) : sellSignal
+
+// Calc SL/TP levels
+float slLong   = close - atrVal * atrSlMult
+float slShort  = close + atrVal * atrSlMult
+float tpLong   = close + (close - slLong)  * rrRatio
+float tpShort  = close - (slShort - close) * rrRatio
+
+// Position sizing (Risk-Based mode only — ถ้าเลือก "Percent of Equity" จะใช้ default จาก strategy())
+bool  useRiskBased = sizeMode == "Risk-Based (% of equity)"
+float riskAmount   = strategy.equity * riskPct / 100
+float slDistLong   = close - slLong
+float slDistShort  = slShort - close
+float qtyLong      = useRiskBased and slDistLong  > 0 ? riskAmount / slDistLong  : na
+float qtyShort     = useRiskBased and slDistShort > 0 ? riskAmount / slDistShort : na
+
+// Track bars in trade
+var int entryBarIdx = na
+
+// ENTER LONG
+if enterBuy and strategy.position_size == 0
+    if useRiskBased
+        strategy.entry("Long", strategy.long, qty=qtyLong)
+    else
+        strategy.entry("Long", strategy.long)
+    strategy.exit("X-Long", "Long", stop=slLong, limit=tpLong)
+    entryBarIdx := bar_index
+
+// ENTER SHORT
+if enterSell and strategy.position_size == 0
+    if useRiskBased
+        strategy.entry("Short", strategy.short, qty=qtyShort)
+    else
+        strategy.entry("Short", strategy.short)
+    strategy.exit("X-Short", "Short", stop=slShort, limit=tpShort)
+    entryBarIdx := bar_index
+
+// DEBUG LABELS
+if debugLabels and (enterBuy or enterSell) and strategy.position_size == 0
+    string dbgTxt = (enterBuy ? "BUY" : "SELL")
+         + "\nEntry: " + str.tostring(close, format.mintick)
+         + "\nSL: "    + str.tostring(enterBuy ? slLong : slShort, format.mintick)
+         + "\nTP: "    + str.tostring(enterBuy ? tpLong : tpShort, format.mintick)
+         + "\nATR: "   + str.tostring(atrVal, format.mintick)
+         + "\nQty: "   + (useRiskBased ? str.tostring(enterBuy ? qtyLong : qtyShort, "#.##") : "auto%")
+    label.new(bar_index, enterBuy ? low : high, dbgTxt,
+         yloc    = enterBuy ? yloc.belowbar : yloc.abovebar,
+         style   = enterBuy ? label.style_label_up : label.style_label_down,
+         color   = enterBuy ? color.new(#1b5e20, 20) : color.new(#b71c1c, 20),
+         textcolor = color.white,
+         size    = size.small)
+
+// REVERSE (optional)
+if exitOnReverse
+    if strategy.position_size > 0 and enterSell
+        strategy.close("Long", comment="Reverse")
+    if strategy.position_size < 0 and enterBuy
+        strategy.close("Short", comment="Reverse")
+
+// MAX BARS EXIT
+if strategy.position_size != 0 and not na(entryBarIdx)
+    if bar_index - entryBarIdx >= maxBarsTrade
+        strategy.close_all(comment="Timeout")
+        entryBarIdx := na
+
+// Reset bar tracker on position close
+if strategy.position_size == 0
+    entryBarIdx := na
+
+// ============================================================================
+// VISUAL (signal markers)
+// ============================================================================
+plotshape(enterBuy  and strategy.position_size == 0, title="Buy Entry",  style=shape.labeldown, location=location.abovebar, color=#1b5e20, textcolor=#ffffff, text="BUY",  size=size.small)
+plotshape(enterSell and strategy.position_size == 0, title="Sell Entry", style=shape.labelup,   location=location.belowbar, color=#b71c1c, textcolor=#ffffff, text="SELL", size=size.small)
+
+// SL/TP levels while in position
+plot(strategy.position_size > 0 ? strategy.position_avg_price : na, "Long Entry", color=color.new(color.blue, 0), style=plot.style_linebr, linewidth=2)
+plot(strategy.position_size < 0 ? strategy.position_avg_price : na, "Short Entry", color=color.new(color.blue, 0), style=plot.style_linebr, linewidth=2)
