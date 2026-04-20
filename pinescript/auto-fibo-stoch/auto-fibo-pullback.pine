@@ -660,6 +660,14 @@ method tick(TFEngine this, float _h, float _l, float _c, float _k, int _t, bool 
             else
                 this.ovbHi  := _h
                 this.ovbHiT := _t
+            // DEBUG: แสดงค่า highSinceValley vs _h ตอน K>80 trigger เพื่อ trace
+            if isChartTF and i_debugStoch
+                _hsvTxt = na(this.highSinceValley) ? "na" : str.tostring(this.highSinceValley, "#.##")
+                _dbgLbl = label.new(_t, _h, "K>80\nhsv=" + _hsvTxt + "\n_h=" + str.tostring(_h, "#.##") + "\n→ovbHi=" + str.tostring(this.ovbHi, "#.##"),
+                     yloc = yloc.abovebar, style = label.style_label_down,
+                     color = color.new(color.purple, 0), textcolor = color.white,
+                     size = size.normal, xloc = xloc.bar_time)
+                array.push(this.markers, _dbgLbl)
             this.highSinceValley  := na
             this.highSinceValleyT := na
             // Reset lowSincePeak (เริ่ม track ใหม่ใน SM_WAIT_OVB)
