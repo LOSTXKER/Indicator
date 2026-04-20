@@ -592,8 +592,10 @@ method tick(TFEngine this, float _h, float _l, float _c, float _k, int _t, bool 
                     label.set_y(this.lockedOvbLbl, this.highSinceValley)
             this.ovsLo  := _l
             this.ovsLoT := _t
-            this.highSinceValley  := na
-            this.highSinceValleyT := na
+            // wide-range bar: ถ้าแท่งนี้คือ valley ใหม่ AND มี high สูงด้วย → ต้อง track high ของแท่งนี้
+            // (ถ้า set na จะหาย peak ที่อยู่ในแท่งเดียวกับ low ใหม่)
+            this.highSinceValley  := _h
+            this.highSinceValleyT := _t
             if isChartTF
                 this.updateOvsPending(_t, _l)
         else
@@ -695,8 +697,10 @@ method tick(TFEngine this, float _h, float _l, float _c, float _k, int _t, bool 
                     label.set_y(this.lockedOvsLbl, this.lowSincePeak)
             this.ovbHi  := _h
             this.ovbHiT := _t
-            this.lowSincePeak  := na
-            this.lowSincePeakT := na
+            // wide-range bar: ถ้าแท่งนี้คือ peak ใหม่ AND มี low ต่ำด้วย → ต้อง track low ของแท่งนี้
+            // (ถ้า set na จะหาย valley ที่อยู่ในแท่งเดียวกับ peak ใหม่)
+            this.lowSincePeak  := _l
+            this.lowSincePeakT := _t
             if isChartTF
                 this.updateOvbPending(_t, _h)
         else
