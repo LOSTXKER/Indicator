@@ -43,6 +43,8 @@ i_kPeriod  = input.int(9,   "K Period",  minval = 1,  group = grpCore)
 i_slowing  = input.int(3,   "Slowing",   minval = 1,  group = grpCore)
 i_ovsLevel = input.int(20,  "OVS Level", minval = 1,  maxval = 49, group = grpCore)
 i_ovbLevel = input.int(80,  "OVB Level", minval = 51, maxval = 99, group = grpCore)
+i_sawFilter = input.int(3,  "Saw Filter (bars in zone)", minval = 1, maxval = 10, group = grpCore,
+     tooltip = "ต้องค้างใน OVS/OVB zone ติดต่อกันกี่ bars ถึงจะนับว่าเป็น cycle จบ\n1 = ไม่กรอง (เดิม), 3 = กรอง saw สั้นๆ")
 
 // ── 📍 RSI Cut ────────────────────────────────────────────────────────────
 grpRsiCut    = "📍 RSI Cut"
@@ -182,6 +184,9 @@ type TFEngine
     // ติดตาม highest high ระหว่าง valley เก่า → valley ใหม่ (commit ตอนเจอ valley ใหม่)
     float   highSinceValley  = na
     int     highSinceValleyT = na
+    // Saw filter: นับ bars ที่ K ค้างใน extreme zone (กรอง K ที่แตะแล้วเด้งกลับ)
+    int     ovsRunBars = 0
+    int     ovbRunBars = 0
     label[] markers
     label[] trendLabels
 
@@ -568,8 +573,14 @@ method cleanupVisuals(TFEngine this) =>
 // ─────────────────────────────────────────────────────────────────────────────
 
 method tick(TFEngine this, float _h, float _l, float _c, float _k, int _t, bool isChartTF) =>
-    _isOvs = _k < i_ovsLevel
-    _isOvb = _k > i_ovbLevel
+    _kInOvs = _k < i_ovsLevel
+    _kInOvb = _k > i_ovbLevel
+    // Saw filter: นับ consecutive bars ที่ K ค้างใน extreme zone
+    this.ovsRunBars := _kInOvs ? this.ovsRunBars + 1 : 0
+    this.ovbRunBars := _kInOvb ? this.ovbRunBars + 1 : 0
+    // Confirmed signals: ต้องค้าง >= i_sawFilter bars ถึงจะนับว่า trigger
+    _isOvs = this.ovsRunBars >= i_sawFilter
+    _isOvb = this.ovbRunBars >= i_sawFilter
     _xl    = xloc.bar_time
 
     // ─── Phase 1: SM_WAIT_OVS — track lowest low (pending OVS), lock ที่ K>80 ───
