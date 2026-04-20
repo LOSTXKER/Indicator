@@ -175,6 +175,13 @@ type TFEngine
     // ติดตาม lowest low ระหว่าง peak เก่า → peak ใหม่ (commit ตอนเจอ peak ใหม่ เพื่อรักษา alternation)
     float   lowSincePeak  = na
     int     lowSincePeakT = na
+    // OVB marker ที่ finalize แล้วแต่ยังขยับได้ใน SM_WAIT_OVS (mirror ของ OVS: capture wick ที่สูงกว่า)
+    label   lockedOvbLbl = na
+    float   lockedOvbHi  = na
+    int     lockedOvbHiT = na
+    // ติดตาม highest high ระหว่าง valley เก่า → valley ใหม่ (commit ตอนเจอ valley ใหม่)
+    float   highSinceValley  = na
+    int     highSinceValleyT = na
     label[] markers
     label[] trendLabels
 
@@ -521,6 +528,8 @@ method finalizeOvb(TFEngine this, float _kTrig, int _trigT) =>
         label.set_textcolor(this.curOvbLbl, i_debugStoch ? color.black : color.orange)
         label.set_size(this.curOvbLbl, i_debugStoch ? size.normal : size.tiny)
         array.push(this.markers, this.curOvbLbl)
+        // เก็บ ref ไว้ใน lockedOvbLbl → ขยับต่อได้ใน SM_WAIT_OVS ถ้าเจอ high สูงกว่า
+        this.lockedOvbLbl := this.curOvbLbl
         this.curOvbLbl := na
         if i_debugStoch and not na(_trigT)
             _dbg = label.new(_trigT, 0, "▼TRIG\nk=" + str.tostring(_kTrig, "#.0"),
@@ -564,12 +573,34 @@ method tick(TFEngine this, float _h, float _l, float _c, float _k, int _t, bool 
     _xl    = xloc.bar_time
 
     // ─── Phase 1: SM_WAIT_OVS — track lowest low (pending OVS), lock ที่ K>80 ───
+    // Mirror ของ Phase 2: ขยับ OVB ได้เฉพาะ wick สูงที่อยู่ "ระหว่าง valley เก่า → valley ใหม่"
+    //   - highSinceValley track highest high หลัง valley ล่าสุด
+    //   - เจอ valley ใหม่ → commit highSinceValley (ถ้าสูงกว่า lockedOvbHi → ขยับ marker)
+    //   - ถ้าไม่มี valley ใหม่จนถึง K>80 → wick นั้นกลายเป็น pending OVB รอบถัดไป (รักษา alternation)
     if this.sm == SM_WAIT_OVS
         if na(this.ovsLo) or _l < this.ovsLo
+            // เจอ valley ใหม่ → commit wick ระหว่าง valley เก่า/ใหม่ ไปเป็น OVB ของรอบนี้
+            if not na(this.lockedOvbHi) and not na(this.highSinceValley) and this.highSinceValley > this.lockedOvbHi
+                this.lockedOvbHi  := this.highSinceValley
+                this.lockedOvbHiT := this.highSinceValleyT
+                this.prevOvbHi    := this.highSinceValley
+                this.prevOvbHiT   := this.highSinceValleyT
+                this.confOvbHi    := this.highSinceValley
+                this.confOvbHiT   := this.highSinceValleyT
+                if isChartTF and not na(this.lockedOvbLbl)
+                    label.set_x(this.lockedOvbLbl, this.highSinceValleyT)
+                    label.set_y(this.lockedOvbLbl, this.highSinceValley)
             this.ovsLo  := _l
             this.ovsLoT := _t
+            this.highSinceValley  := na
+            this.highSinceValleyT := na
             if isChartTF
                 this.updateOvsPending(_t, _l)
+        else
+            // ไม่ใช่ valley ใหม่ → ติดตาม highest high ระหว่าง valley เก่า → valley ปัจจุบัน
+            if na(this.highSinceValley) or _h > this.highSinceValley
+                this.highSinceValley  := _h
+                this.highSinceValleyT := _t
 
         // K>80 → confirm OVS, transition; ovbHi reset → track ใหม่ที่ trigger bar
         if _isOvb and not na(this.ovsLo)
@@ -617,15 +648,26 @@ method tick(TFEngine this, float _h, float _l, float _c, float _k, int _t, bool 
             this.sm     := SM_WAIT_OVB
             this.ovsLo  := na
             this.ovsLoT := na
-            // Reset ovbHi เริ่ม track ใหม่ที่ K>80 trigger bar เพื่อไม่ให้ peak ก่อน trigger ทับ OVS marker
-            this.ovbHi  := _h
-            this.ovbHiT := _t
+            // Lock OVB marker (no more moves สำหรับ cycle ที่เพิ่งจบ)
+            this.lockedOvbLbl := na
+            this.lockedOvbHi  := na
+            this.lockedOvbHiT := na
+            // wick หลัง valley สุดท้าย (highSinceValley) → กลายเป็น pending OVB รอบถัดไป
+            // เทียบกับ trigger bar ใช้อันที่สูงกว่า เพื่อไม่ให้ peak ก่อน trigger ทับ OVS marker
+            if not na(this.highSinceValley) and this.highSinceValley > _h
+                this.ovbHi  := this.highSinceValley
+                this.ovbHiT := this.highSinceValleyT
+            else
+                this.ovbHi  := _h
+                this.ovbHiT := _t
+            this.highSinceValley  := na
+            this.highSinceValleyT := na
             // Reset lowSincePeak (เริ่ม track ใหม่ใน SM_WAIT_OVB)
             this.lowSincePeak  := na
             this.lowSincePeakT := na
 
             if isChartTF
-                this.updateOvbPending(_t, _h)
+                this.updateOvbPending(this.ovbHiT, this.ovbHi)
 
     // ─── Phase 2: SM_WAIT_OVB — track highest high (pending OVB), lock ที่ K<20 ───
     // Option C (จำกัด): ขยับ OVS ได้เฉพาะ wick ที่อยู่ "ระหว่าง peak เก่า → peak ใหม่"
@@ -660,6 +702,9 @@ method tick(TFEngine this, float _h, float _l, float _c, float _k, int _t, bool 
             _fHi  = this.ovbHi
             _fHiT = this.ovbHiT
 
+            // เก็บ position ของ OVB ที่เพิ่ง finalize → ขยับต่อได้ใน SM_WAIT_OVS
+            this.lockedOvbHi  := _fHi
+            this.lockedOvbHiT := _fHiT
             if isChartTF
                 this.finalizeOvb(_k, _t)
 
@@ -715,6 +760,9 @@ method tick(TFEngine this, float _h, float _l, float _c, float _k, int _t, bool 
                 this.ovsLoT := _t
             this.lowSincePeak  := na
             this.lowSincePeakT := na
+            // Reset highSinceValley (เริ่ม track ใหม่ใน SM_WAIT_OVS)
+            this.highSinceValley  := na
+            this.highSinceValleyT := na
 
             if isChartTF
                 this.updateOvsPending(this.ovsLoT, this.ovsLo)
