@@ -8,8 +8,8 @@
 
 ทำเครื่องหมายจุด **price extremes** ที่สอดคล้องกับวงจรของ Stochastic Oscillator:
 
-- **OVS (Oversold marker, ◆ cyan)** — จุด **low ที่ต่ำสุด** ในช่วงระหว่าง 2 OVB
-- **OVB (Overbought marker, ◆ orange)** — จุด **high ที่สูงสุด** ในช่วงระหว่าง 2 OVS
+- **OVS (Oversold marker, ◆ cyan)** — จุด **low** ของ cycle
+- **OVB (Overbought marker, ◆ orange)** — จุด **high** ของ cycle
 
 Stochastic ใช้:
 
@@ -21,247 +21,296 @@ Stochastic ใช้:
 
 ## 2. ข้อกำหนด (Requirements)
 
-3 หลักการง่ายๆ ที่ต้องเป็นจริงพร้อมกัน:
+ที่ user ต้องการพร้อมกันทั้ง 3 ข้อ:
 
-| #   | Requirement              | คำอธิบาย                                                          |
-| --- | ------------------------ | ----------------------------------------------------------------- |
-| R1  | **Alternation**          | Marker ต้องสลับ OVB → OVS → OVB → OVS เสมอ ห้ามซ้อน               |
-| R2  | **Absolute extremes**    | OVS = low จริง (รวม wick), OVB = high จริง — ไม่ติดกรอบรอบ Stoch |
-| R3  | **Stoch-driven trigger** | K crossings (`K>80`, `K<20`) เป็นแค่ "trigger" ตอน place marker   |
 
-**Key insight**: R3 ใช้ Stoch แค่เป็น *trigger* ไม่ใช่ *boundary* ของการหา extreme
+| #   | Requirement             | คำอธิบาย                                               |
+| --- | ----------------------- | ------------------------------------------------------ |
+| R1  | **Alternation**         | Marker บนกราฟต้องสลับ OVB → OVS → OVB → OVS เสมอ       |
+| R2  | **Absolute extremes**   | OVS อยู่ที่ low จริง (รวม wick), OVB อยู่ที่ high จริง |
+| R3  | **Stoch-driven cycles** | Cycle boundary กำหนดโดย K crossings (`K>80`, `K<20`)   |
+
+
+> ⚠️ **R1 กับ R2 ขัดกันเองในบางเคส** (ดูหัวข้อ "Trade-off") — เราเลือกแก้แบบ hybrid
 
 ---
 
-## 3. Marker-to-Marker Tracking Model
-
-แทนที่จะให้ K crossings เป็นกรอบของการ track extreme เราใช้ **previous opposite marker** เป็นจุดอ้างอิง:
-
-```text
-trkLow  = lowest  low  ตั้งแต่ "OVB marker ก่อนหน้า" จนถึงปัจจุบัน
-trkHigh = highest high ตั้งแต่ "OVS marker ก่อนหน้า" จนถึงปัจจุบัน
-```
-
-ทั้ง 2 trackers อัปเดต **ทุกบาร์** ไม่สนใจ K trigger หรือ state
-
-### State Machine
+## 3. State Machine
 
 ```text
         K > i_ovbLevel (80)
    ┌───────────────────────────┐
    │                           ▼
 SM_WAIT_OVS              SM_WAIT_OVB
-(รอ K>80 → place OVS)    (รอ K<20 → place OVB)
+(track lowest low)       (track highest high
+ finalize OVS @ K>80)     finalize OVB @ K<20)
    ▲                           │
    │                           │
    └───────────────────────────┘
         K < i_ovsLevel (20)
 ```
 
-**State** กำหนดแค่ว่า "ตอนนี้รอ trigger ตัวไหน" — ไม่กระทบการ track extreme
+### State: `SM_WAIT_OVS`
+
+- กำลังรอยืนยัน OVS marker
+- Track `ovsLo` = lowest low ที่เจอใน rising phase
+- พบ `K > 80` → **finalize OVS** ที่ตำแหน่ง `ovsLo` → transition เข้า `SM_WAIT_OVB`
+
+### State: `SM_WAIT_OVB`
+
+- กำลังรอยืนยัน OVB marker
+- Track `ovbHi` = highest high ที่เจอใน falling phase
+- Track `lowSincePeak` (ดูหัวข้อ 5)
+- พบ `K < 20` → **finalize OVB** ที่ตำแหน่ง `ovbHi` → transition เข้า `SM_WAIT_OVS`
 
 ---
 
-## 4. Algorithm
+## 4. ปัญหาที่เจอตอนพัฒนา
 
-### ทุกบาร์ (`tick`)
+### เคส A — H2 Stacking (alternation พัง)
 
-```text
-if l < trkLow:
-    trkLow  = l
-    trkLowT = t
-    update pending OVS marker (ถ้า state = SM_WAIT_OVS)
+H2 timeframe มี bar ใหญ่ K กระโดด `>80 → <20` ในไม่กี่บาร์ → เคย track `ovbHi` ตั้งแต่ `SM_WAIT_OVS` → OVB marker ไปกองอยู่บาร์เดียวกับ OVS → เห็นเป็น `OVB OVB OVS OVS`
 
-if h > trkHigh:
-    trkHigh  = h
-    trkHighT = t
-    update pending OVB marker (ถ้า state = SM_WAIT_OVB)
-```
+**Fix:** Reset `ovbHi := _h, ovbHiT := _t` ที่ K>80 trigger bar → OVB ขยับได้แค่หลัง trigger เท่านั้น
 
-### ตอน K > 80 (state = SM_WAIT_OVS)
+### เคส B — OVS ไม่อยู่ที่ wick ต่ำสุด (extremes พัง)
 
-```text
-1. Place OVS marker ที่ (trkLow, trkLowT)  ← extreme ที่ track มา
-2. Update trend / Fibo logic
-3. Reset trkLow  = (l, t) ของ trigger bar  ← เริ่ม track ใหม่
-4. Validate trkHigh:
-     ถ้า trkHighT >= TS (OVS marker time)  → keep (high หลัง OVS = candidate ของ OVB ถัดไป)
-     else                                    → reset trkHigh = (h, t)
-5. switch to SM_WAIT_OVB
-6. แสดง pending OVB marker ที่ (trkHigh, trkHighT)
-```
+ภายใน cycle เดียวกัน (between OVB คนหนึ่งกับอีกคนหนึ่ง) มี wick ที่ลงต่ำกว่า OVS marker → user ต้องการให้ marker ขยับไปที่ wick
 
-### ตอน K < 20 (state = SM_WAIT_OVB)
+**ลองครั้งแรก (Option C แบบหลวม):** ขยับ OVS ทุก low ที่ต่ำกว่า → **break alternation** เพราะ OVS ขยับเลย OVB peak ไป → เห็น `OVB OVB OVS OVS OVB`
 
-```text
-1. Place OVB marker ที่ (trkHigh, trkHighT)
-2. Update trend / Fibo logic
-3. Reset trkHigh = (h, t) ของ trigger bar
-4. Validate trkLow:
-     ถ้า trkLowT >= TB (OVB marker time)  → keep
-     else                                   → reset trkLow = (l, t)
-5. switch to SM_WAIT_OVS
-6. แสดง pending OVS marker ที่ (trkLow, trkLowT)
-```
+### เคส C — Wick หลัง peak (alternation พังอีกที)
+
+Wick ต่ำที่อยู่ **หลัง** final peak ของ cycle → ถ้าขยับ OVS ไปที่ wick นี้ → time order: `OVB → OVS` ภายใน cycle → กลายเป็น `OVB OVB OVS OVS`
 
 ---
 
-## 5. ทำไมแก้ปัญหาทุกเคส?
+## 5. Solution — Bounded Marker Movement (ทั้ง OVS และ OVB)
 
-### ปัญหาเดิม (ก่อน refactor)
+### 5.1 Bounded OVS Movement (ใน `SM_WAIT_OVB`)
 
-ระบบเดิม track `ovsLo` ใน `SM_WAIT_OVS` และ `ovbHi` ใน `SM_WAIT_OVB` เท่านั้น — ไม่ track ข้าม state
+#### หลักการ
 
-```text
-OVS1   ──── OVB1 (4890) ──── V-bottom (4850) ──── peak2 (4885) ──── K>80 (h=4870) ──── K<20
-                                                  ↑                  ↑                   ↑
-                                            (ก่อน K>80)         (เพิ่ง trigger)   (place OVB ตรงนี้)
-```
+> **OVS ขยับได้เฉพาะ wick ที่อยู่ระหว่าง 2 peaks** ใน `SM_WAIT_OVB`
+> ถ้าหลัง wick ไม่มี peak ใหม่จนถึง K<20 → wick นั้นคือ **pending OVS ของรอบถัดไป** ไม่ใช่ของรอบปัจจุบัน
 
-ในระบบเดิม:
-- Cycle 1 ปิด: place OVB1 ที่ 4890 ✓
-- SM_WAIT_OVS: track lowest → V-bottom 4850 ✓
-- K>80 fires → place OVS2 ที่ 4850 ✓
-- เริ่ม SM_WAIT_OVB: `ovbHi` reset ที่ K>80 trigger bar (h=4870)
-- 4885 (ก่อน trigger) **หาย!** เพราะระบบไม่ track ก่อน trigger
-- K<20 → place OVB2 ที่ 4870 ❌ (user ต้องการ 4885)
+#### Tracker ที่ใช้
 
-### ระบบใหม่ (marker-to-marker)
 
-```text
-หลัง place OVB1 (K<20): reset trkHigh = (h@trigger, t)
-                                        ↓
-SM_WAIT_OVS เริ่ม:
-  - V-bottom 4850 → trkLow updates
-  - peak2 4885 → trkHigh updates (เพราะ track ทุกบาร์!)
-  - K>80 → place OVS ที่ V-bottom
-           validate trkHigh: TP(peak2) > TS(V-bottom) → keep ✓
-SM_WAIT_OVB ต่อ:
-  - trkHigh = 4885 (carry-forward!)
-  - K<20 → place OVB ที่ 4885 ✓
-```
+| Field                           | ความหมาย                                         | ใช้ตอนไหน     |
+| ------------------------------- | ------------------------------------------------ | ------------- |
+| `ovsLo`, `ovsLoT`               | Pending OVS ของ cycle ที่กำลัง track             | `SM_WAIT_OVS` |
+| `ovbHi`, `ovbHiT`               | Running peak ของ cycle                           | `SM_WAIT_OVB` |
+| `lockedOvsLbl`                  | Ref ไป OVS marker ที่ finalize แล้วแต่ยังขยับได้ | `SM_WAIT_OVB` |
+| `lockedOvsLo`, `lockedOvsLoT`   | ราคา/เวลาของ OVS ที่ locked                      | `SM_WAIT_OVB` |
+| `lowSincePeak`, `lowSincePeakT` | Lowest low ตั้งแต่ peak ล่าสุด                   | `SM_WAIT_OVB` |
 
----
 
-## 6. Validation Rules — ทำไมต้อง validate?
-
-`trkHigh` track ตั้งแต่ **OVS marker ก่อนหน้า** ไม่ใช่ตั้งแต่ K trigger ก่อนหน้า ดังนั้น:
-
-- บางครั้ง trkHigh มี value ที่เกิด **ก่อน** OVS marker ที่เพิ่ง place → invalid
-- เช็ค `trkHighT >= ovsMarkerT` — ถ้าใช่ keep, ถ้าไม่ reset
-
-ตัวอย่าง: peak เกิดก่อน V-bottom (เช่นเดียวกัน reverse scenario)
+#### Flow ใน `SM_WAIT_OVB`
 
 ```text
-peak (4885)@T1 ──── V-bottom (4850)@T2 ──── K>80@T3
-       ↑                ↑
-   trkHigh = 4885   trkLow = V-bottom
-                    
-K>80 fires:
-  Place OVS @ V-bottom (T2)
-  Validate trkHigh: T1 < T2 → INVALID → reset trkHigh = (h@T3, T3)
+ทุกบาร์:
+  ถ้า _h > ovbHi:                           # เจอ peak ใหม่
+    ┌─ commit lowSincePeak:
+    │     ถ้า lowSincePeak < lockedOvsLo:
+    │         → ขยับ lockedOvsLbl ไป lowSincePeak
+    │         → update prevOvsLo (สำหรับ trend HL/LL + DN Fibo รอบถัดไป)
+    └─ ovbHi := _h
+       lowSincePeak := na          # reset เริ่ม track ใหม่หลัง peak นี้
+       updateOvbPending(_t, _h)
   
-→ peak 4885 (ก่อน OVS) ไม่กลายเป็น OVB ตัวถัดไป (chronologically ผิด)
+  ไม่ใช่ peak ใหม่:
+    ถ้า _l < lowSincePeak:
+      lowSincePeak := _l           # track lowest หลัง peak ล่าสุด
+
+  ถ้า _isOvs (K<20):                # cycle จบ
+    ├─ finalize OVB
+    ├─ lockedOvsLbl := na          # lock OVS (ขยับไม่ได้แล้ว)
+    └─ pending OVS รอบถัดไป:
+         ถ้า lowSincePeak < _l:    # wick หลัง final peak ต่ำกว่า trigger bar
+           ovsLo := lowSincePeak
+         else:
+           ovsLo := _l              # ใช้ trigger bar
 ```
 
----
+#### ทำไมถึงรักษา Alternation ได้
 
-## 7. Cycle Lifecycle
+- OVS marker ขยับได้เฉพาะตอน **เจอ peak ใหม่** → guarantees ว่า OVS time **< new peak time**
+- Final peak (= OVB position) จะอยู่ **หลัง** OVS เสมอ
+- Wick หลัง final peak ถูกโยนไปรอบถัดไป → **ไม่** กลายเป็น OVS ของรอบปัจจุบัน
+
+#### Visualization
 
 ```text
-                       OVB1                 OVS2 (V)             OVB2 (peak)
-                        ◆                     ◆                     ◆
-                        │                     │                     │
-       ↑              80 ┼────────────────────┴─────────────────────┼─── K
-       │                 │                                          │
-       │              20 ┼──────────┬─────────────────┬─────────────┴───
-       │                 │          │                 │
-       │               OVS1     (K<20)              (K>80)
-       │
-       │  trkLow:   tracking ─── reset ──── tracking ─── reset ──── tracking
-       │  trkHigh:  reset ──── tracking ─── reset ──── tracking ─── reset
-       │
-       │  state:    SM_WAIT_OVB    SM_WAIT_OVS    SM_WAIT_OVB    SM_WAIT_OVS
+เคสที่ขยับได้ (wick ก่อน final peak):
+
+Price ─┐                                    
+       │       ╱╲ (peak A)      ╱╲ (peak B = ovbHi sudah)
+       │      ╱  ╲              ╱  ╲
+       │ ◆OVS    ╲      ╱╲    ╱
+       │           ╲   ╱  ╲  ╱
+       │            ╲ ╱    ╲╱
+       │             ╲ wick (ขยับ OVS ไปตรงนี้ ตอน peak B form)
+       │              ◆moved
+       └────────────────────────────────►
+                                            
+                K>80 trig          K<20 trig
+                
+เคสที่ขยับไม่ได้ (wick หลัง final peak):
+
+Price ─┐
+       │       ╱╲ (peak = ovbHi)
+       │      ╱  ╲
+       │ ◆OVS    ╲                              
+       │           ╲                            
+       │            ╲                           
+       │             ╲                  
+       │              ╲ wick (→ pending OVS รอบถัดไป)
+       │               ◆carry to next
+       └────────────────────────────────►
+                K>80 trig            K<20 trig
 ```
 
-- ทุก marker placement = **reset opposite tracker** + **validate same-side tracker**
-- Marker ไม่เคยขยับหลัง finalize — แม้เจอ extreme ดีกว่า เพราะ
-  - ถ้าเป็น extreme หลัง marker → ถูกใช้ในรอบถัดไปแทน
-  - ถ้าเป็น extreme ก่อน marker → invalid เสมอ (chronology)
+### 5.2 Bounded OVB Movement (ใน `SM_WAIT_OVS`)
+
+#### หลักการ
+
+> **OVB ขยับขึ้นได้เฉพาะ wick ที่อยู่ระหว่าง 2 valleys** ใน `SM_WAIT_OVS`
+> ถ้าหลัง wick ไม่มี valley ใหม่จนถึง K>80 → wick นั้นถูกทิ้ง (ไม่ carry ไปรอบถัดไป เพื่อป้องกัน H2 stacking)
+
+#### Tracker ที่ใช้ (symmetric กับ OVS)
+
+| Field                                 | ความหมาย                                         | ใช้ตอนไหน     |
+| ------------------------------------- | ------------------------------------------------ | ------------- |
+| `lockedOvbLbl`                        | Ref ไป OVB marker ที่ finalize แล้วแต่ยังขยับได้ | `SM_WAIT_OVS` |
+| `lockedOvbHi`, `lockedOvbHiT`        | ราคา/เวลาของ OVB ที่ locked                      | `SM_WAIT_OVS` |
+| `highSinceValley`, `highSinceValleyT` | Highest high ตั้งแต่ valley ล่าสุด               | `SM_WAIT_OVS` |
+
+#### Flow ใน `SM_WAIT_OVS`
+
+```text
+ทุกบาร์:
+  ถ้า _l < ovsLo:                           # เจอ valley ใหม่
+    ┌─ commit highSinceValley:
+    │     ถ้า highSinceValley > lockedOvbHi:
+    │         → ขยับ lockedOvbLbl ไป highSinceValley
+    │         → update prevOvbHi, confOvbHi (สำหรับ trend HH/LH + UP Fibo รอบถัดไป)
+    └─ ovsLo := _l
+       highSinceValley := na       # reset เริ่ม track ใหม่หลัง valley นี้
+       updateOvsPending(_t, _l)
+
+  ไม่ใช่ valley ใหม่:
+    ถ้า _h > highSinceValley:
+      highSinceValley := _h        # track highest หลัง valley ล่าสุด
+
+  ถ้า _isOvb (K>80):                # cycle จบ
+    ├─ finalize OVS
+    ├─ lockedOvbLbl := na          # lock OVB (ขยับไม่ได้แล้ว)
+    ├─ highSinceValley := na       # ทิ้ง (ไม่ carry ไปรอบถัดไป)
+    └─ ovbHi := _h                 # reset เริ่ม track OVB ที่ trigger bar
+```
+
+#### ทำไมถึงรักษา Alternation ได้
+
+- OVB marker ขยับได้เฉพาะตอน **เจอ valley ใหม่** → guarantees ว่า OVB time **< new valley time**
+- Final valley (= OVS position) จะอยู่ **หลัง** OVB เสมอ
+- High หลัง final valley ถูกทิ้ง (ไม่ carry) → ไม่ทำให้ OVB กระโดดเลย OVS
+
+#### ความแตกต่างจาก OVS Movement
+
+- OVS ฝั่ง: `lowSincePeak` หลัง final peak → **carry ไปเป็น pending OVS** รอบถัดไป
+- OVB ฝั่ง: `highSinceValley` หลัง final valley → **ทิ้ง** (ไม่ carry) เพื่อป้องกัน H2 stacking ที่เคยเกิด (ovbHi reset ที่ trigger bar ตาม fix เคส A)
 
 ---
 
-## 8. Field Reference — TFEngine
+## 6. Trade-offs ที่รู้และยอมรับ
 
-| Field           | ชนิด    | ใช้ทำอะไร                                        |
-| --------------- | ------- | ------------------------------------------------ |
-| `sm`            | `int`   | State machine: 0=WAIT_OVS, 1=WAIT_OVB            |
-| `trkLow`        | `float` | Lowest low ตั้งแต่ OVB marker ก่อนหน้า           |
-| `trkLowT`       | `int`   | Time ของ `trkLow`                                |
-| `trkHigh`       | `float` | Highest high ตั้งแต่ OVS marker ก่อนหน้า         |
-| `trkHighT`      | `int`   | Time ของ `trkHigh`                               |
-| `prevOvsLo`    | `float` | Value ของ OVS marker ก่อนหน้า (สำหรับ trend/Fibo) |
-| `prevOvsLoT`   | `int`   | Time ของ OVS marker ก่อนหน้า                     |
-| `prevOvbHi`    | `float` | Value ของ OVB marker ก่อนหน้า                    |
-| `prevOvbHiT`   | `int`   | Time ของ OVB marker ก่อนหน้า                     |
-| `confOvbHi`    | `float` | OVB confirmed (สำหรับ UP Fibo)                   |
-| `confOvbHiT`   | `int`   | Time ของ confirmed OVB                           |
-| `trend`         | `int`   | -2/-1/0/1/2 (DN warn / DN / neutral / UP / UP warn) |
-| `curOvsLbl`    | `label` | Pending OVS marker (จะ finalize ตอน K>80)        |
-| `curOvbLbl`    | `label` | Pending OVB marker (จะ finalize ตอน K<20)        |
+### 6.1 OVS อาจไม่ใช่ "absolute lowest" ของ cycle
 
----
+ถ้า lowest low อยู่หลัง final peak → marker ของ cycle นั้นไม่ได้อยู่ที่ low จริง (ไปอยู่กับรอบถัดไปแทน)
 
-## 9. Trend Logic (Two-Strike System)
+**เหตุผลที่ยอม:** เพื่อรักษา R1 (alternation)
 
-หลังจาก marker ถูก place ระบบอัปเดต trend ตามคอนเซป "two-strike":
+### 6.2 Fibo อาจ stale หลัง marker ขยับ
 
-### After OVS placement
-- `isHL` (Higher Low: OVS ใหม่ > OVS เก่า)
-- `isLL` (Lower Low: OVS ใหม่ < OVS เก่า)
+**UP Fibo** สร้างตอน K>80 ใช้ `_sLo, _sLoT` snapshot — ถ้า OVS ขยับใน `SM_WAIT_OVB` ภายหลัง → Fibo anchor ยังอยู่ที่เดิม (stale)
 
-### After OVB placement
-- `isHH` (Higher High: OVB ใหม่ > OVB เก่า)
-- `isLH` (Lower High: OVB ใหม่ < OVB เก่า)
+**DN Fibo** สร้างตอน K<20 ใช้ `_fHi, _fHiT` snapshot — ถ้า OVB ขยับใน `SM_WAIT_OVS` ภายหลัง → Fibo anchor ยังอยู่ที่เดิม (stale)
 
-### Transition table
+ทั้งสองกรณี Fibo ของ **รอบถัดไป** ใช้ `prevOvsLo` / `prevOvbHi` ที่อัปเดตแล้ว → ถูกต้อง
 
-| Current Trend | Event | New Trend | ความหมาย                       |
-| ------------- | ----- | --------- | ------------------------------ |
-| 0 (neutral)   | HL    | 2 (⚠HL)   | warn: เริ่มยก low → strike 1   |
-| 0             | LL    | -1 (DN)   | confirmed downtrend            |
-| 2 (⚠HL)       | HH    | 1 (UP)    | strike 2 confirmed UP          |
-| 1 (UP)        | LH    | -2 (⚠LH)  | warn: ทำ high ต่ำลง → strike 1 |
-| -2 (⚠LH)      | LL    | -1 (DN)   | strike 2 confirmed DN          |
-| -2            | HH    | 1 (UP)    | recover ก่อน strike 2          |
+**TODO ถ้าจะแก้:** Recreate Fibo เมื่อ marker ขยับ (หรือใช้ shared reference)
 
-→ **Trend เปลี่ยนต้องใช้ 2 sequential confirmations** (warning ก่อน → confirm จริง)
+### 6.3 Deferred Confirmation
+
+Marker ไม่ได้ confirm ทันทีที่ finalize แต่จะ confirm ต่อเมื่อ **marker ตัวถัดไปของ type เดียวกัน** ปรากฏ:
+
+- OVS(N) confirm เมื่อ OVS(N+1) ถูก finalize
+- OVB(N) confirm เมื่อ OVB(N+1) ถูก finalize
+
+**Visual:** marker ที่ยัง unconfirmed แสดงเป็น **semi-transparent** (60% transparency), เมื่อ confirm แล้วเปลี่ยนเป็น **solid color**
+
+**Tracker:** `unconfOvsLbl` / `unconfOvbLbl` — ref ไป marker ที่รอ confirmation
+
+**การขยับ:** ใช้ bounded movement เดิม (หัวข้อ 5) เท่านั้น — marker lock ที่ phase transition (K<20 lock OVS, K>80 lock OVB) เพื่อรักษา alternation
+
+### 6.4 H2 ที่ K กระโดด >80→<20 ในบาร์เดียว
+
+- OVS marker จะอยู่ที่ K>80 trigger bar
+- OVB marker จะอยู่ที่ K<20 trigger bar (ถัดไป)
+- ทั้งสองอาจอยู่ติดกันมาก (visual overlap) แต่ alternation ยังถูก
 
 ---
 
-## 10. Fibo Logic
+## 7. Cycle Lifecycle (Reference)
 
-- **UP Fibo (target)** — สร้างตอน K>80 (place OVS ใหม่) ใช้ `confOvbHi` (ตัวก่อนหน้า) → `prevOvsLo` (ใหม่)
-- **DN Fibo (target)** — สร้างตอน K<20 (place OVB ใหม่) ใช้ `prevOvsLo` (ก่อนหน้า) → `confOvbHi` (ใหม่)
-- **Entry Fibo** — สร้างทุกครั้งคู่กับ target Fibo สำหรับ entry zone (ใช้ระดับ 0.618/0.786)
+```text
+Cycle N timeline:
 
-ทั้งหมด reference จุด **OVS/OVB ที่ถูก place ตาม marker-to-marker model** — ไม่มีการอ้างอิงตำแหน่ง K trigger โดยตรง
+  [K<20 prev]                                              [K<20 curr]
+       │                                                        │
+       ▼                                                        ▼
+  ┌────────────────┬─────────────────────────────────────┐
+  │  SM_WAIT_OVS   │           SM_WAIT_OVB                │
+  │                │                                       │
+  │  track ovsLo   │  track ovbHi                         │
+  │  (rising)      │  track lowSincePeak                  │
+  │  track         │  ขยับ OVS marker (ถ้า peak ใหม่)     │
+  │  highSinceV.   │                                       │
+  │  ขยับ OVB      │                                       │
+  │  marker (ถ้า   │                                       │
+  │  valley ใหม่)  │                                       │
+  │                │                                       │
+  │       [K>80]   │                                       │
+  │       finalize │                                       │
+  │       OVS marker──► lockedOvsLbl (ขยับได้)            │
+  │       lock OVB │                                       │
+  │                │                                       │
+  │                │                       finalize OVB ──┤──► lockedOvbLbl (ขยับได้ใน next SM_WAIT_OVS)
+  │                │                       lock OVS ──────┤
+  │                │                       carry          │
+  │                │                       lowSincePeak ──┤──► next cycle's ovsLo
+  └────────────────┴─────────────────────────────────────┘
+```
 
 ---
 
-## 11. ข้อดีของ Model นี้
+## 8. ความสัมพันธ์กับ Fibo Sets
 
-1. **เรียบง่าย** — แค่ 2 trackers + reset/validate rules
-2. **จับ extreme จริง** — ไม่หลุด peak/valley ที่เกิดก่อน K trigger
-3. **Alternation รักษา 100%** — chronology check ป้องกัน marker ซ้อนตำแหน่ง
-4. **Marker ไม่ขยับ** — placed = locked (ลบ `lockedOvsLbl`/`lockedOvbLbl` ทิ้งได้)
-5. **MTF compatible** — engine ทุก TF ใช้ logic เดียวกันโดยไม่เพี้ยน
+- **UP Fibo** (สร้างตอน K>80, cycle N OVS confirm)
+  - Anchor: `prevOvbHi` (cycle N-1's OVB) → `_sLo` (cycle N's OVS, ตอนนั้น)
+  - หมวด HK / SB ตาม trend HL/LL
+- **DN Fibo** (สร้างตอน K<20, cycle N OVB confirm)
+  - Anchor: `prevOvsLo` (cycle N's OVS, **อัปเดตล่าสุด** ถ้าขยับ) → `_fHi` (cycle N's OVB)
+  - หมวด HK / SB ตาม trend HH/LH
+
+ระบบ trend (`trendAfterOvs` / `trendAfterOvb`) ทำงานบน `prevOvsLo` / `prevOvbHi` ที่อัปเดตทุกครั้งที่ marker ขยับ — ดังนั้น HL/LL/HH/LH คำนวณบน position สุดท้ายเสมอ
 
 ---
 
-## 12. Lessons Learned
+## 9. Lessons Learned
 
-- **อย่าผูก extreme tracking กับ K trigger** — Stoch lag ทำให้พลาด extreme จริง
-- **Marker-to-marker > K-to-K** — ใช้ marker ก่อนหน้าเป็นกรอบ ตรง intent ผู้ใช้
-- **Validate via timestamp comparison** — ถูกกว่าและง่ายกว่า "บังคับ reset ที่ trigger"
-- **Continuous tracking + state-driven visual update** — แยก concern ระหว่าง logic กับ UI
+1. **เขียน invariant ก่อน code** — เคสนี้วนหลายรอบเพราะ R1 (alternation) กับ R2 (extremes) ขัดกันโดยไม่ได้นั่งเขียน trade-off ตั้งแต่แรก
+2. **Edge timeframes (H2) เป็น stress test ที่ดี** — bar ใหญ่ทำให้ assumptions ที่ซ่อนอยู่ใน TF ปกติ ถูกเปิดโปง
+3. **"Movable marker" pattern** ใช้ได้แต่ต้องมี **bounded window** ชัดเจน (ในเคสนี้คือ "ระหว่าง 2 peaks") ไม่งั้นจะหลุด invariant
+

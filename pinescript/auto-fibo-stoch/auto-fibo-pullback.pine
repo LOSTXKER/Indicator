@@ -140,13 +140,10 @@ type FiboSet
 
 type TFEngine
     int     sm = 0
-    // Marker-to-marker trackers — update ทุก bar, reset/validate ตอน K trigger
-    //   trkLow  = lowest  low  ตั้งแต่ "OVB marker ก่อนหน้า" → ใช้ place OVS ตอน K>80
-    //   trkHigh = highest high ตั้งแต่ "OVS marker ก่อนหน้า" → ใช้ place OVB ตอน K<20
-    float   trkLow  = na
-    int     trkLowT = na
-    float   trkHigh = na
-    int     trkHighT = na
+    float   ovsLo = na
+    int     ovsLoT = na
+    float   ovbHi = na
+    int     ovbHiT = na
     float   confOvbHi = na
     int     confOvbHiT = na
     float   prevOvsLo = na
@@ -174,6 +171,20 @@ type TFEngine
     // Deferred confirmation: marker ยัง unconfirmed จนกว่าจะเจอตัวถัดไปของ type เดียวกัน
     label   unconfOvsLbl = na
     label   unconfOvbLbl = na
+    // OVS marker ที่ finalize แล้วแต่ยังขยับได้ใน SM_WAIT_OVB (option C: capture wick ที่ต่ำกว่า)
+    label   lockedOvsLbl = na
+    float   lockedOvsLo  = na
+    int     lockedOvsLoT = na
+    // OVB marker ที่ finalize แล้วแต่ยังขยับได้ใน SM_WAIT_OVS (capture wick ที่สูงกว่า)
+    label   lockedOvbLbl = na
+    float   lockedOvbHi  = na
+    int     lockedOvbHiT = na
+    // ติดตาม lowest low ระหว่าง peak เก่า → peak ใหม่ (commit ตอนเจอ peak ใหม่ เพื่อรักษา alternation)
+    float   lowSincePeak  = na
+    int     lowSincePeakT = na
+    // ติดตาม highest high ระหว่าง valley เก่า → valley ใหม่ (commit ตอนเจอ valley ใหม่)
+    float   highSinceValley  = na
+    int     highSinceValleyT = na
     label[] markers
     label[] trendLabels
 
@@ -506,6 +517,7 @@ method finalizeOvs(TFEngine this, float _kTrig, int _trigT) =>
         label.set_textcolor(this.curOvsLbl, i_debugStoch ? color.new(color.black, 50) : color.new(color.aqua, 60))
         label.set_size(this.curOvsLbl, i_debugStoch ? size.normal : size.tiny)
         array.push(this.markers, this.curOvsLbl)
+        this.lockedOvsLbl := this.curOvsLbl
         this.unconfOvsLbl := this.curOvsLbl
         this.curOvsLbl := na
         if i_debugStoch and not na(_trigT)
@@ -529,6 +541,7 @@ method finalizeOvb(TFEngine this, float _kTrig, int _trigT) =>
         label.set_textcolor(this.curOvbLbl, i_debugStoch ? color.new(color.black, 50) : color.new(color.orange, 60))
         label.set_size(this.curOvbLbl, i_debugStoch ? size.normal : size.tiny)
         array.push(this.markers, this.curOvbLbl)
+        this.lockedOvbLbl := this.curOvbLbl
         this.unconfOvbLbl := this.curOvbLbl
         this.curOvbLbl := na
         if i_debugStoch and not na(_trigT)
@@ -572,139 +585,191 @@ method tick(TFEngine this, float _h, float _l, float _c, float _k, int _t, bool 
     _isOvb = _k > i_ovbLevel
     _xl    = xloc.bar_time
 
-    // ─── Marker-to-marker tracking ───────────────────────────────────────────
-    // หลักการ: ไม่ติดกรอบ "K trigger" — แต่ละ marker = extreme จริง ระหว่าง
-    // marker ตรงข้ามตัวก่อนหน้า → ตอนนี้
-    //   trkLow  = lowest  low  ตั้งแต่ OVB marker ก่อนหน้า → ใช้ตอน K>80 place OVS
-    //   trkHigh = highest high ตั้งแต่ OVS marker ก่อนหน้า → ใช้ตอน K<20 place OVB
-    // Reset rules:
-    //   - K>80 (place OVS): reset trkLow ให้ track ใหม่ (สำหรับ OVS รอบถัดไป)
-    //                        validate trkHigh: keep ถ้า TP >= TS, else reset
-    //   - K<20 (place OVB): reset trkHigh ให้ track ใหม่
-    //                        validate trkLow: keep ถ้า TL >= TB, else reset
-    // ผลลัพธ์: marker จับ extreme จริง + alternation รักษาเสมอ + ไม่ซ้อนตำแหน่ง
-    if na(this.trkLow) or _l < this.trkLow
-        this.trkLow  := _l
-        this.trkLowT := _t
-        if isChartTF and this.sm == SM_WAIT_OVS
-            this.updateOvsPending(_t, _l)
-    if na(this.trkHigh) or _h > this.trkHigh
-        this.trkHigh  := _h
-        this.trkHighT := _t
-        if isChartTF and this.sm == SM_WAIT_OVB
-            this.updateOvbPending(_t, _h)
+    // ─── Phase 1: SM_WAIT_OVS — track lowest low (pending OVS), lock ที่ K>80 ───
+    // + Bounded OVB movement: ขยับ OVB ขึ้นได้เฉพาะ wick ที่อยู่ระหว่าง 2 valleys
+    if this.sm == SM_WAIT_OVS
+        if na(this.ovsLo) or _l < this.ovsLo
+            // valley ใหม่ → commit highSinceValley (ขยับ OVB ถ้าสูงกว่า)
+            if not na(this.lockedOvbHi) and not na(this.highSinceValley) and this.highSinceValley > this.lockedOvbHi
+                this.lockedOvbHi  := this.highSinceValley
+                this.lockedOvbHiT := this.highSinceValleyT
+                this.prevOvbHi    := this.highSinceValley
+                this.prevOvbHiT   := this.highSinceValleyT
+                this.confOvbHi    := this.highSinceValley
+                this.confOvbHiT   := this.highSinceValleyT
+                if isChartTF and not na(this.lockedOvbLbl)
+                    label.set_x(this.lockedOvbLbl, this.highSinceValleyT)
+                    label.set_y(this.lockedOvbLbl, this.highSinceValley)
+            this.highSinceValley  := na
+            this.highSinceValleyT := na
+            this.ovsLo  := _l
+            this.ovsLoT := _t
+            if isChartTF
+                this.updateOvsPending(_t, _l)
+        else
+            // ไม่ใช่ valley ใหม่ → ติดตาม highest high ระหว่าง valley เก่า → valley ปัจจุบัน
+            if na(this.highSinceValley) or _h > this.highSinceValley
+                this.highSinceValley  := _h
+                this.highSinceValleyT := _t
 
-    // ─── K>80 → finalize OVS ───
-    if this.sm == SM_WAIT_OVS and _isOvb and not na(this.trkLow)
-        _sLo  = this.trkLow
-        _sLoT = this.trkLowT
+        // K>80 → confirm OVS, transition; ovbHi reset → track ใหม่ที่ trigger bar
+        if _isOvb and not na(this.ovsLo)
+            _sLo  = this.ovsLo
+            _sLoT = this.ovsLoT
 
-        // ขยับ pending OVS marker ให้ชี้ที่ trkLow ก่อน finalize (กรณี marker ยังไม่ถูก update)
-        if isChartTF
-            this.updateOvsPending(_sLoT, _sLo)
-            this.finalizeOvs(_k, _t)
+            // เก็บ position ของ OVS ที่เพิ่ง finalize → ขยับต่อได้ใน SM_WAIT_OVB
+            this.lockedOvsLo  := _sLo
+            this.lockedOvsLoT := _sLoT
+            if isChartTF
+                this.finalizeOvs(_k, _t)
 
-        _isHL = not na(this.prevOvsLo) and _sLo > this.prevOvsLo
-        _isLL = not na(this.prevOvsLo) and _sLo < this.prevOvsLo
-        _fT   = _isHL ? FT_SOMBOON : FT_HAK_KHO
-        _fNm  = _fT == FT_SOMBOON ? "SB" : "HK"
+            _isHL = not na(this.prevOvsLo) and _sLo > this.prevOvsLo
+            _isLL = not na(this.prevOvsLo) and _sLo < this.prevOvsLo
+            _fT   = _isHL ? FT_SOMBOON : FT_HAK_KHO
+            _fNm  = _fT == FT_SOMBOON ? "SB" : "HK"
 
-        if not na(this.prevOvsLo)
-            _newTrend = trendAfterOvs(this.trend, _isHL, _isLL)
-            if _newTrend != this.trend
-                this.trend := _newTrend
-                if isChartTF
-                    this.pushTrendLabel(_sLoT, _sLo, _newTrend, true)
+            if not na(this.prevOvsLo)
+                _newTrend = trendAfterOvs(this.trend, _isHL, _isLL)
+                if _newTrend != this.trend
+                    this.trend := _newTrend
+                    if isChartTF
+                        this.pushTrendLabel(_sLoT, _sLo, _newTrend, true)
 
-        this.prevOvsLo  := _sLo
-        this.prevOvsLoT := _sLoT
+            this.prevOvsLo  := _sLo
+            this.prevOvsLoT := _sLoT
 
-        if expirePendingFibos(this.targetSets, -1) > 0
-            this.canDrawDn := true
+            if expirePendingFibos(this.targetSets, -1) > 0
+                this.canDrawDn := true
 
-        // UP Fibo (จาก OVB เก่า ↘ OVS ใหม่)
-        if this.showTarget and this.canDrawUp and not na(this.confOvbHi) and this.confOvbHi > _sLo
-            _show = _fT == FT_HAK_KHO ? i_showHK : i_showSB
-            if _show
-                _nf = createFiboSet(_sLo, this.confOvbHi, this.confOvbHiT, _sLoT, _fT, _fNm, 1, this.tfTag, _xl, this.showPending)
-                array.push(this.targetSets, _nf)
-                this.canDrawUp := false
-                trimFiboSets(this.targetSets, 1, i_maxSets)
+            // UP Fibo (จาก OVB เก่า ↘ OVS ใหม่)
+            if this.showTarget and this.canDrawUp and not na(this.confOvbHi) and this.confOvbHi > _sLo
+                _show = _fT == FT_HAK_KHO ? i_showHK : i_showSB
+                if _show
+                    _nf = createFiboSet(_sLo, this.confOvbHi, this.confOvbHiT, _sLoT, _fT, _fNm, 1, this.tfTag, _xl, this.showPending)
+                    array.push(this.targetSets, _nf)
+                    this.canDrawUp := false
+                    trimFiboSets(this.targetSets, 1, i_maxSets)
 
-        if this.showEntry and not na(this.confOvbHi) and this.confOvbHi > _sLo
-            _ns = createSupportFiboSet(_sLo, this.confOvbHi, this.confOvbHiT, _sLoT, -1, this.tfTag, this.col, _xl)
-            array.push(this.entrySets, _ns)
-            trimFiboSets(this.entrySets, -1, i_maxSupSets)
+            if this.showEntry and not na(this.confOvbHi) and this.confOvbHi > _sLo
+                _ns = createSupportFiboSet(_sLo, this.confOvbHi, this.confOvbHiT, _sLoT, -1, this.tfTag, this.col, _xl)
+                array.push(this.entrySets, _ns)
+                trimFiboSets(this.entrySets, -1, i_maxSupSets)
 
-        this.sm := SM_WAIT_OVB
+            this.sm     := SM_WAIT_OVB
+            this.ovsLo  := na
+            this.ovsLoT := na
+            // Reset ovbHi เริ่ม track ใหม่ที่ K>80 trigger bar เพื่อไม่ให้ peak ก่อน trigger ทับ OVS marker
+            this.ovbHi  := _h
+            this.ovbHiT := _t
+            // Reset lowSincePeak (เริ่ม track ใหม่ใน SM_WAIT_OVB)
+            this.lowSincePeak  := na
+            this.lowSincePeakT := na
+            // Lock OVB marker (ขยับไม่ได้แล้ว เพราะ OVS confirm แล้ว)
+            this.lockedOvbLbl := na
+            this.lockedOvbHi  := na
+            this.lockedOvbHiT := na
+            this.highSinceValley  := na
+            this.highSinceValleyT := na
 
-        // Reset trkLow → fresh tracking สำหรับ OVS ตัวถัดไป (หลัง OVB ที่จะ place ในรอบหน้า)
-        this.trkLow  := _l
-        this.trkLowT := _t
-        // Validate trkHigh: keep ถ้า high เกิดหลัง OVS marker ที่เพิ่ง place (TP >= TS), else reset
-        if na(this.trkHighT) or this.trkHighT < _sLoT
-            this.trkHigh  := _h
-            this.trkHighT := _t
+            if isChartTF
+                this.updateOvbPending(_t, _h)
 
-        if isChartTF
-            this.updateOvbPending(this.trkHighT, this.trkHigh)
+    // ─── Phase 2: SM_WAIT_OVB — track highest high (pending OVB), lock ที่ K<20 ───
+    // Option C (จำกัด): ขยับ OVS ได้เฉพาะ wick ที่อยู่ "ระหว่าง peak เก่า → peak ใหม่"
+    //   - lowSincePeak track lowest low หลัง peak ล่าสุด
+    //   - เจอ peak ใหม่ → commit lowSincePeak (ถ้าต่ำกว่า lockedOvsLo → ขยับ marker)
+    //   - ถ้าไม่มี peak ใหม่จนถึง K<20 → wick นั้นกลายเป็น pending OVS รอบถัดไป (รักษา alternation)
+    else if this.sm == SM_WAIT_OVB
+        if na(this.ovbHi) or _h > this.ovbHi
+            // เจอ peak ใหม่ → commit wick ระหว่าง peak เก่า/ใหม่ ไปเป็น OVS ของรอบนี้
+            if not na(this.lockedOvsLo) and not na(this.lowSincePeak) and this.lowSincePeak < this.lockedOvsLo
+                this.lockedOvsLo  := this.lowSincePeak
+                this.lockedOvsLoT := this.lowSincePeakT
+                this.prevOvsLo    := this.lowSincePeak
+                this.prevOvsLoT   := this.lowSincePeakT
+                if isChartTF and not na(this.lockedOvsLbl)
+                    label.set_x(this.lockedOvsLbl, this.lowSincePeakT)
+                    label.set_y(this.lockedOvsLbl, this.lowSincePeak)
+            this.ovbHi  := _h
+            this.ovbHiT := _t
+            this.lowSincePeak  := na
+            this.lowSincePeakT := na
+            if isChartTF
+                this.updateOvbPending(_t, _h)
+        else
+            // ไม่ใช่ peak ใหม่ → ติดตาม lowest low ระหว่าง peak เก่า → peak ปัจจุบัน
+            if na(this.lowSincePeak) or _l < this.lowSincePeak
+                this.lowSincePeak  := _l
+                this.lowSincePeakT := _t
 
-    // ─── K<20 → finalize OVB ───
-    else if this.sm == SM_WAIT_OVB and _isOvs and not na(this.trkHigh)
-        _fHi  = this.trkHigh
-        _fHiT = this.trkHighT
+        // K<20 → confirm OVB, lock OVS (no more moves), transition
+        if _isOvs
+            _fHi  = this.ovbHi
+            _fHiT = this.ovbHiT
 
-        if isChartTF
-            this.updateOvbPending(_fHiT, _fHi)
-            this.finalizeOvb(_k, _t)
+            if isChartTF
+                this.finalizeOvb(_k, _t)
 
-        _isHH = not na(this.prevOvbHi) and _fHi > this.prevOvbHi
-        _isLH = not na(this.prevOvbHi) and _fHi < this.prevOvbHi
+            _isHH = not na(this.prevOvbHi) and _fHi > this.prevOvbHi
+            _isLH = not na(this.prevOvbHi) and _fHi < this.prevOvbHi
 
-        if not na(this.prevOvbHi)
-            _newTrend = trendAfterOvb(this.trend, _isHH, _isLH)
-            if _newTrend != this.trend
-                this.trend := _newTrend
-                if isChartTF
-                    this.pushTrendLabel(_fHiT, _fHi, _newTrend, false)
+            if not na(this.prevOvbHi)
+                _newTrend = trendAfterOvb(this.trend, _isHH, _isLH)
+                if _newTrend != this.trend
+                    this.trend := _newTrend
+                    if isChartTF
+                        this.pushTrendLabel(_fHiT, _fHi, _newTrend, false)
 
-        if expirePendingFibos(this.targetSets, 1) > 0
-            this.canDrawUp := true
+            if expirePendingFibos(this.targetSets, 1) > 0
+                this.canDrawUp := true
 
-        _dnFT  = _isLH ? FT_SOMBOON : FT_HAK_KHO
-        _dnFNm = _dnFT == FT_SOMBOON ? "SB" : "HK"
+            _dnFT  = _isLH ? FT_SOMBOON : FT_HAK_KHO
+            _dnFNm = _dnFT == FT_SOMBOON ? "SB" : "HK"
 
-        this.prevOvbHi   := _fHi
-        this.prevOvbHiT  := _fHiT
-        this.confOvbHi   := _fHi
-        this.confOvbHiT  := _fHiT
+            this.prevOvbHi   := _fHi
+            this.prevOvbHiT  := _fHiT
+            this.confOvbHi   := _fHi
+            this.confOvbHiT  := _fHiT
 
-        // DN Fibo (จาก OVS เก่า ↗ OVB ใหม่)
-        if this.showTarget and this.canDrawDn and not na(this.prevOvsLo) and _fHi > this.prevOvsLo
-            _show = _dnFT == FT_HAK_KHO ? i_showHK : i_showSB
-            if _show
-                _nf = createFiboSet(this.prevOvsLo, _fHi, this.prevOvsLoT, _fHiT, _dnFT, _dnFNm, -1, this.tfTag, _xl, this.showPending)
-                array.push(this.targetSets, _nf)
-                this.canDrawDn := false
-                trimFiboSets(this.targetSets, -1, i_maxSets)
+            // DN Fibo (จาก OVS เก่า ↗ OVB ใหม่)
+            if this.showTarget and this.canDrawDn and not na(this.prevOvsLo) and _fHi > this.prevOvsLo
+                _show = _dnFT == FT_HAK_KHO ? i_showHK : i_showSB
+                if _show
+                    _nf = createFiboSet(this.prevOvsLo, _fHi, this.prevOvsLoT, _fHiT, _dnFT, _dnFNm, -1, this.tfTag, _xl, this.showPending)
+                    array.push(this.targetSets, _nf)
+                    this.canDrawDn := false
+                    trimFiboSets(this.targetSets, -1, i_maxSets)
 
-        if this.showEntry and not na(this.prevOvsLo) and _fHi > this.prevOvsLo
-            _ns = createSupportFiboSet(this.prevOvsLo, _fHi, this.prevOvsLoT, _fHiT, 1, this.tfTag, this.col, _xl)
-            array.push(this.entrySets, _ns)
-            trimFiboSets(this.entrySets, 1, i_maxSupSets)
+            if this.showEntry and not na(this.prevOvsLo) and _fHi > this.prevOvsLo
+                _ns = createSupportFiboSet(this.prevOvsLo, _fHi, this.prevOvsLoT, _fHiT, 1, this.tfTag, this.col, _xl)
+                array.push(this.entrySets, _ns)
+                trimFiboSets(this.entrySets, 1, i_maxSupSets)
 
-        this.sm := SM_WAIT_OVS
+            this.sm     := SM_WAIT_OVS
+            this.ovbHi  := na
+            this.ovbHiT := na
+            // Lock OVS marker (no more moves สำหรับ cycle ที่เพิ่งจบ)
+            this.lockedOvsLbl := na
+            this.lockedOvsLo  := na
+            this.lockedOvsLoT := na
+            // Setup locked OVB → ขยับขึ้นได้ใน SM_WAIT_OVS ถ้าเจอ high สูงกว่า
+            this.lockedOvbHi  := _fHi
+            this.lockedOvbHiT := _fHiT
+            this.highSinceValley  := na
+            this.highSinceValleyT := na
+            // wick หลัง peak สุดท้าย (lowSincePeak) → กลายเป็น pending OVS รอบถัดไป
+            // เทียบกับ trigger bar ใช้อันที่ต่ำกว่า
+            if not na(this.lowSincePeak) and this.lowSincePeak < _l
+                this.ovsLo  := this.lowSincePeak
+                this.ovsLoT := this.lowSincePeakT
+            else
+                this.ovsLo  := _l
+                this.ovsLoT := _t
+            this.lowSincePeak  := na
+            this.lowSincePeakT := na
 
-        // Reset trkHigh → fresh tracking สำหรับ OVB ตัวถัดไป
-        this.trkHigh  := _h
-        this.trkHighT := _t
-        // Validate trkLow: keep ถ้า low เกิดหลัง OVB marker ที่เพิ่ง place (TL >= TB), else reset
-        if na(this.trkLowT) or this.trkLowT < _fHiT
-            this.trkLow  := _l
-            this.trkLowT := _t
-
-        if isChartTF
-            this.updateOvsPending(this.trkLowT, this.trkLow)
+            if isChartTF
+                this.updateOvsPending(this.ovsLoT, this.ovsLo)
 
 method destroyFibos(TFEngine this, float barH, float barL, float barC) =>
     if array.size(this.targetSets) > 0
