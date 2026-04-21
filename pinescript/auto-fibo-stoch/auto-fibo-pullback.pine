@@ -171,6 +171,9 @@ type TFEngine
     // Chart-TF visual state (เฉพาะ engine ที่ตรงกับ chart TF เท่านั้นที่ใช้)
     label   curOvsLbl = na
     label   curOvbLbl = na
+    // Deferred confirmation: marker ยัง unconfirmed จนกว่าจะเจอตัวถัดไปของ type เดียวกัน
+    label   unconfOvsLbl = na
+    label   unconfOvbLbl = na
     label[] markers
     label[] trendLabels
 
@@ -491,13 +494,19 @@ method updateOvbPending(TFEngine this, int _t, float _h) =>
 
 method finalizeOvs(TFEngine this, float _kTrig, int _trigT) =>
     if not na(this.curOvsLbl)
+        // Confirm OVS ตัวก่อนหน้า (ถ้ามี) → เปลี่ยนเป็นสี solid
+        if not na(this.unconfOvsLbl)
+            label.set_color(this.unconfOvsLbl, i_debugStoch ? color.new(color.aqua, 0) : color.aqua)
+            label.set_textcolor(this.unconfOvsLbl, i_debugStoch ? color.black : color.aqua)
+        // OVS ตัวปัจจุบัน → unconfirmed (semi-transparent, รอ OVS ถัดไป confirm)
         _txt = i_debugStoch ? "S\nk=" + str.tostring(_kTrig, "#.0") : "S"
         label.set_text(this.curOvsLbl, _txt)
         label.set_style(this.curOvsLbl, i_debugStoch ? label.style_label_up : label.style_diamond)
-        label.set_color(this.curOvsLbl, i_debugStoch ? color.new(color.aqua, 0) : color.aqua)
-        label.set_textcolor(this.curOvsLbl, i_debugStoch ? color.black : color.aqua)
+        label.set_color(this.curOvsLbl, i_debugStoch ? color.new(color.aqua, 50) : color.new(color.aqua, 60))
+        label.set_textcolor(this.curOvsLbl, i_debugStoch ? color.new(color.black, 50) : color.new(color.aqua, 60))
         label.set_size(this.curOvsLbl, i_debugStoch ? size.normal : size.tiny)
         array.push(this.markers, this.curOvsLbl)
+        this.unconfOvsLbl := this.curOvsLbl
         this.curOvsLbl := na
         if i_debugStoch and not na(_trigT)
             _dbg = label.new(_trigT, 0, "▲TRIG\nk=" + str.tostring(_kTrig, "#.0"),
@@ -508,13 +517,19 @@ method finalizeOvs(TFEngine this, float _kTrig, int _trigT) =>
 
 method finalizeOvb(TFEngine this, float _kTrig, int _trigT) =>
     if not na(this.curOvbLbl)
+        // Confirm OVB ตัวก่อนหน้า (ถ้ามี) → เปลี่ยนเป็นสี solid
+        if not na(this.unconfOvbLbl)
+            label.set_color(this.unconfOvbLbl, i_debugStoch ? color.new(color.orange, 0) : color.orange)
+            label.set_textcolor(this.unconfOvbLbl, i_debugStoch ? color.black : color.orange)
+        // OVB ตัวปัจจุบัน → unconfirmed (semi-transparent, รอ OVB ถัดไป confirm)
         _txt = i_debugStoch ? "B\nk=" + str.tostring(_kTrig, "#.0") : "B"
         label.set_text(this.curOvbLbl, _txt)
         label.set_style(this.curOvbLbl, i_debugStoch ? label.style_label_down : label.style_diamond)
-        label.set_color(this.curOvbLbl, i_debugStoch ? color.new(color.orange, 0) : color.orange)
-        label.set_textcolor(this.curOvbLbl, i_debugStoch ? color.black : color.orange)
+        label.set_color(this.curOvbLbl, i_debugStoch ? color.new(color.orange, 50) : color.new(color.orange, 60))
+        label.set_textcolor(this.curOvbLbl, i_debugStoch ? color.new(color.black, 50) : color.new(color.orange, 60))
         label.set_size(this.curOvbLbl, i_debugStoch ? size.normal : size.tiny)
         array.push(this.markers, this.curOvbLbl)
+        this.unconfOvbLbl := this.curOvbLbl
         this.curOvbLbl := na
         if i_debugStoch and not na(_trigT)
             _dbg = label.new(_trigT, 0, "▼TRIG\nk=" + str.tostring(_kTrig, "#.0"),
