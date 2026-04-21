@@ -241,7 +241,21 @@ Price ─┐
 
 **TODO ถ้าจะแก้:** Recreate Fibo เมื่อ marker ขยับ (หรือใช้ shared reference)
 
-### 6.3 Deferred Confirmation
+### 6.3 Peak/Valley Carry-over ข้าม Cycle
+
+เมื่อ bounded movement ไม่สามารถ commit ได้ (ไม่มี valley/peak ใหม่ก่อน K trigger) → peak/valley ที่ค้างถูก **carry-over เป็น initial value ของ cycle ถัดไป** แทนที่จะทิ้ง
+
+**OVB ฝั่ง (K>80 transition):**
+- ถ้า `highSinceValley > trigger bar high` → ใช้เป็น initial `ovbHi` ของ SM_WAIT_OVB ถัดไป
+- อัปเดต `confOvbHi` / `prevOvbHi` ด้วย (สำหรับ Fibo + trend calculation)
+- OVB(N) marker ไม่ขยับ (alternation safe) แต่ OVB(N+1) จะเริ่มที่ peak สูงกว่า
+
+**OVS ฝั่ง (K<20 transition):**
+- มี carry-over อยู่แล้วผ่าน `lowSincePeak` → ใช้เป็น initial `ovsLo`
+
+**ผลลัพธ์:** peak ที่ bounded logic พลาดไม่หายไป แต่ถูกส่งต่อให้ cycle ถัดไปใช้
+
+### 6.4 Deferred Confirmation
 
 Marker ไม่ได้ confirm ทันทีที่ finalize แต่จะ confirm ต่อเมื่อ **marker ตัวถัดไปของ type เดียวกัน** ปรากฏ:
 
