@@ -1,0 +1,182 @@
+// LOSTXKER — Pullback V2
+//@version=6
+indicator("LX Pullback V2", shorttitle="LX PB V2", overlay=true,
+     max_bars_back=500, max_labels_count=500, max_boxes_count=500, max_lines_count=500)
+
+// ============================================================================
+// INPUTS
+// ============================================================================
+string GRP_TDI = "TDI"
+int    rsiPeriod = input.int(13, "RSI Period",          minval=1, group=GRP_TDI)
+int    pricePer  = input.int(1,  "Price Line Period",   minval=1, group=GRP_TDI)
+int    midPer    = input.int(34, "Mid Line Period",     minval=1, group=GRP_TDI)
+int    slowPer   = input.int(9,  "Slow MA Period",      minval=1, group=GRP_TDI)
+
+string GRP_EMA = "LX EMA"
+int    emaLen14  = input.int(14, "EMA 14", group=GRP_EMA)
+int    emaLen60  = input.int(60, "EMA 60", group=GRP_EMA)
+color  ema14Clr  = input.color(color.yellow, "EMA 14 Color", group=GRP_EMA)
+color  ema60Clr  = input.color(#FF9800,       "EMA 60 Color", group=GRP_EMA)
+bool   cloudOn   = input.bool(false, "EMA Cloud Fill", group=GRP_EMA)
+
+string GRP_DISP = "DISPLAY"
+bool   showLabel = input.bool(true,  "Show label", group=GRP_DISP)
+color  buyClr    = input.color(#26a69a, "Buy color",  group=GRP_DISP)
+color  sellClr   = input.color(#ef5350, "Sell color", group=GRP_DISP)
+
+string GRP_SES = "SESSIONS"
+bool   sesOn    = input.bool(false, "Show Sessions", group=GRP_SES)
+bool   sesLabel = input.bool(true, "Session Labels", group=GRP_SES)
+bool   tokyoOn  = input.bool(true,  "Tokyo",   inline="tk", group=GRP_SES)
+color  tokyoClr = input.color(color.new(#1565c0, 92), "",  inline="tk", group=GRP_SES)
+bool   londonOn = input.bool(true,  "London",  inline="ld", group=GRP_SES)
+color  londonClr= input.color(color.new(#ff8f00, 92), "",  inline="ld", group=GRP_SES)
+bool   nyOn     = input.bool(true,  "New York", inline="ny", group=GRP_SES)
+color  nyClr    = input.color(color.new(#c62828, 92), "",  inline="ny", group=GRP_SES)
+
+string GRP_AOF = "AOF (Asian Range)"
+bool   aofOn   = input.bool(false, "Show AOF", group=GRP_AOF)
+string aofSess = input.session("0700-1400", "Asian Session (Tokyo)", group=GRP_AOF)
+color  aofClr  = input.color(color.new(color.white, 50), "Border Color", group=GRP_AOF)
+
+// ============================================================================
+// M5 TDI (LOCAL)
+// ============================================================================
+float m5Rsi   = ta.rsi(close, rsiPeriod)
+float m5Price = ta.sma(m5Rsi, pricePer)
+float m5Slow  = ta.sma(m5Rsi, slowPer)
+
+bool m5CrossUpSlow = m5Price > m5Slow and m5Price[1] <= m5Slow[1]
+bool m5CrossDnSlow = m5Price < m5Slow and m5Price[1] >= m5Slow[1]
+
+// ============================================================================
+// M15 TDI — cross mid UP then DN = buy armed, cross mid DN then UP = sell armed
+// ============================================================================
+[m15Price, m15Mid] = request.security(syminfo.tickerid, "15",
+     [ta.sma(ta.rsi(close, rsiPeriod), pricePer), ta.sma(ta.rsi(close, rsiPeriod), midPer)],
+     lookahead=barmerge.lookahead_off)
+
+bool m15CrossUpMid = m15Price > m15Mid and m15Price[1] <= m15Mid[1]
+bool m15CrossDnMid = m15Price < m15Mid and m15Price[1] >= m15Mid[1]
+
+var int  buyPhase     = 0
+var int  sellPhase    = 0
+var bool m15BuyArmed  = false
+var bool m15SellArmed = false
+
+if m15CrossUpMid
+    if buyPhase == 0
+        buyPhase := 1
+    if sellPhase == 1
+        sellPhase    := 0
+        m15SellArmed := true
+
+if m15CrossDnMid
+    if buyPhase == 1
+        buyPhase     := 0
+        m15BuyArmed  := true
+    if sellPhase == 0
+        sellPhase := 1
+
+// ============================================================================
+// H1 BIAS (close vs EMA60)
+// ============================================================================
+float h1Close  = request.security(syminfo.tickerid, "60", close, lookahead=barmerge.lookahead_off)
+float h1Ema60  = request.security(syminfo.tickerid, "60", ta.ema(close, emaLen60), lookahead=barmerge.lookahead_off)
+bool  h1BuyBias  = h1Close > h1Ema60
+bool  h1SellBias = h1Close < h1Ema60
+
+// ============================================================================
+// SIGNALS
+// ============================================================================
+bool isM5 = timeframe.period == "5"
+float ema14 = ta.ema(close, emaLen14)
+float ema60 = ta.ema(close, emaLen60)
+bool m5BuyBias  = ema14 > ema60
+bool m5SellBias = ema14 < ema60
+
+var int lastBuyBI  = -1
+var int lastSellBI = -1
+
+bool newBuy  = isM5 and h1BuyBias and m5BuyBias  and m15BuyArmed  and m5CrossUpSlow and bar_index != lastBuyBI
+bool newSell = isM5 and h1SellBias and m5SellBias and m15SellArmed and m5CrossDnSlow and bar_index != lastSellBI
+if newBuy
+    lastBuyBI    := bar_index
+    m15BuyArmed  := false
+    buyPhase     := 0
+if newSell
+    lastSellBI   := bar_index
+    m15SellArmed := false
+    sellPhase    := 0
+
+// ============================================================================
+// PLOTS — EMA
+// ============================================================================
+p14 = plot(ema14, "EMA 14", color=color.new(ema14Clr, 0), linewidth=2)
+p60 = plot(ema60, "EMA 60", color=color.new(ema60Clr, 0), linewidth=2)
+
+color cloudClr = ema14 > ema60 ? color.new(color.green, 85) : color.new(color.red, 85)
+fill(p14, p60, color=cloudOn ? cloudClr : na, title="Cloud 14-60")
+
+// ============================================================================
+// PLOTS — SIGNALS
+// ============================================================================
+plotshape(newBuy,  title="Buy",  style=shape.triangleup,   location=location.belowbar, color=buyClr,  size=size.small)
+plotshape(newSell, title="Sell", style=shape.triangledown, location=location.abovebar, color=sellClr, size=size.small)
+plotshape(showLabel and newBuy,  title="Buy Lbl",  style=shape.labelup,   location=location.belowbar, color=buyClr,  textcolor=color.white, text="BUY",  size=size.tiny)
+plotshape(showLabel and newSell, title="Sell Lbl", style=shape.labeldown, location=location.abovebar, color=sellClr, textcolor=color.white, text="SELL", size=size.tiny)
+
+// ============================================================================
+// SESSIONS
+// ============================================================================
+drawSession(string sess, string tz, color clr, string lbl) =>
+    bool inSes = not na(time(timeframe.period, sess, tz))
+    var box  b      = na
+    var bool prevIn = false
+    if inSes and not prevIn
+        b := box.new(bar_index, high, bar_index, low, bgcolor=clr, border_color=color.new(clr, 80), border_width=1)
+        if sesLabel
+            label.new(bar_index, high, lbl, color=color.new(color.black, 100), textcolor=color.new(color.white, 30), style=label.style_label_down, size=size.tiny)
+    if inSes
+        box.set_right(b, bar_index)
+        box.set_top(b,    math.max(box.get_top(b),    high))
+        box.set_bottom(b, math.min(box.get_bottom(b), low))
+    prevIn := inSes
+
+if sesOn
+    if tokyoOn
+        drawSession("0900-1800", "Asia/Tokyo",       tokyoClr,  "Tokyo")
+    if londonOn
+        drawSession("0800-1700", "Europe/London",    londonClr, "London")
+    if nyOn
+        drawSession("0800-1700", "America/New_York", nyClr,     "New York")
+
+// ============================================================================
+// AOF — Asian Session Range
+// ============================================================================
+bool aofIn    = not na(time(timeframe.period, aofSess, "Asia/Tokyo"))
+bool aofStart = aofIn and not aofIn[1]
+
+var float aofHi       = na
+var float aofLo       = na
+var int   aofStartBar = na
+var box   aofBox      = na
+
+if aofStart
+    aofHi       := high
+    aofLo       := low
+    aofStartBar := bar_index
+else if aofIn
+    aofHi := math.max(nz(aofHi, high), high)
+    aofLo := math.min(nz(aofLo, low),  low)
+
+if aofOn and not na(aofStartBar)
+    if not na(aofBox)
+        box.delete(aofBox)
+    aofBox := box.new(aofStartBar, aofHi, bar_index, aofLo, bgcolor=color.new(color.white, 100), border_color=aofClr, border_width=1)
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+alertcondition(newBuy,  title="Buy",  message="LX PB-V2 Buy {{ticker}} {{interval}} @ {{close}}")
+alertcondition(newSell, title="Sell", message="LX PB-V2 Sell {{ticker}} {{interval}} @ {{close}}")

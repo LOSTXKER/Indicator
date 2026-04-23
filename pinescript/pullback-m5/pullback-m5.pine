@@ -15,8 +15,7 @@
 //   Step 4 : M5 TDI price cross UP slow  →  PB B!
 //
 // H4 bias : กำหนดทิศ buy/sell (close vs EMA60)
-// Designed: ดูบน M5 chart (H1+M15 ดึงผ่าน MTF)
-// States (TDI level, EMA dist) = realtime / Events (touch, cross) = confirmed
+// Designed: ดูบน M5 chart (H1+M15 ดึงผ่าน MTF, ไม่ repaint)
 //@version=6
 indicator("LX Pullback M5 (EMA14/60 + TDI)", shorttitle="LX PB M5", overlay=true,
      max_bars_back=500, max_labels_count=500, max_boxes_count=500, max_lines_count=500)
@@ -50,6 +49,7 @@ bool   enableA      = input.bool(true, "Enable ชุด A (Standard)",    group
 bool   enableB      = input.bool(true, "Enable ชุด B (Early entry)", group=GRP_FILTER)
 float  earlyMinRsi  = input.float(40, "Early entry min RSI (ชุด B)", minval=20, maxval=50, step=1, group=GRP_FILTER, tooltip="ชุด B: price line ต้อง > ค่านี้ กรอง bounce จากก้นบึ้ง")
 int    armedTimeout = input.int(3,    "Armed timeout (H1 bars)",     minval=1, maxval=20, group=GRP_FILTER, tooltip="armed (Step 1-2) หมดอายุหลัง N แท่ง H1 ที่ปิดแล้ว")
+int    m5Timeout    = input.int(4,    "M5 timeout (M15 bars)",       minval=1, maxval=20, group=GRP_FILTER, tooltip="Step 3 active → M5 ต้อง fire ภายใน N แท่ง M15")
 float  minEmaDist   = input.float(0,  "Min EMA14-60 distance (pts)", minval=0, step=0.5, group=GRP_FILTER, tooltip="EMA14 กับ 60 ต้องห่างกันอย่างน้อยเท่านี้ (0 = ปิด, กรอง sideway)")
 string sessionTime  = input.string("0730-0100", "Session filter (TH time)", group=GRP_FILTER, tooltip="ช่วงเวลาที่อนุญาตให้มีสัญญาณ (เวลาไทย UTC+7)\n0730-0100 = 07:30–01:00")
 
@@ -88,48 +88,43 @@ string aofSess = input.session("0700-1400", "Asian Session (Tokyo)", group=GRP_A
 color  aofClr  = input.color(color.new(color.white, 50), "Border Color", group=GRP_AOF)
 
 // ============================================================================
-// H4 BIAS (confirmed bar, no repaint)
+// H4 BIAS
 // ============================================================================
 [h4Close, h4Ema] = request.security(syminfo.tickerid, "240",
-     [close[1], ta.ema(close, h4EmaLen)[1]],
-     lookahead=barmerge.lookahead_on)
+     [close, ta.ema(close, h4EmaLen)],
+     lookahead=barmerge.lookahead_off)
 
 bool buyBias  = h4Close > h4Ema
 bool sellBias = h4Close < h4Ema
 
 // ============================================================================
-// H1 DATA — states: realtime / events: confirmed
+// H1 DATA — EMA + TDI (compute on H1, fetch confirmed bar)
 // ============================================================================
-// States (TDI levels, EMA dist) → realtime, no lag
-[usePrice, useMid, useSlow, useEmaDist,
- tdiBuyA, tdiSellA] = request.security(
+[h1High, h1Low, h1Close, h1Ema14, h1Ema60, h1Price, h1Mid, h1Slow, h1EmaDist] = request.security(
      syminfo.tickerid, "60",
-     [ta.sma(ta.rsi(close, rsiPeriod), pricePer),
+     [high, low, close,
+      ta.ema(close, emaFastLen),
+      ta.ema(close, emaSlowLen),
+      ta.sma(ta.rsi(close, rsiPeriod), pricePer),
       ta.sma(ta.rsi(close, rsiPeriod), bandLen),
       ta.sma(ta.rsi(close, rsiPeriod), slowPer),
-      math.abs(ta.ema(close, emaFastLen) - ta.ema(close, emaSlowLen)),
-      ta.sma(ta.rsi(close, rsiPeriod), pricePer) > ta.sma(ta.rsi(close, rsiPeriod), bandLen),
-      ta.sma(ta.rsi(close, rsiPeriod), pricePer) < ta.sma(ta.rsi(close, rsiPeriod), bandLen)],
+      math.abs(ta.ema(close, emaFastLen) - ta.ema(close, emaSlowLen))],
      lookahead=barmerge.lookahead_off)
 
-// Events (EMA touch, TDI cross) → confirmed bar, no repaint
-// Raw H1 OHLC + EMA fetched unconditionally → touch logic computed outside
-[h1Low, h1High, h1Close, h1Open, h1EmaF, h1EmaS,
- priceCrossUpSlow, priceCrossDnSlow] = request.security(
-     syminfo.tickerid, "60",
-     [low[1], high[1], close[1], open[1],
-      ta.ema(close, emaFastLen)[1],
-      ta.ema(close, emaSlowLen)[1],
-      ta.crossover(ta.sma(ta.rsi(close, rsiPeriod), pricePer),
-                   ta.sma(ta.rsi(close, rsiPeriod), slowPer))[1],
-      ta.crossunder(ta.sma(ta.rsi(close, rsiPeriod), pricePer),
-                    ta.sma(ta.rsi(close, rsiPeriod), slowPer))[1]],
-     lookahead=barmerge.lookahead_on)
+// ใช้แท่ง H1 ปัจจุบัน (realtime, เร็วกว่า [1] แต่ repaint ได้)
+float useHigh    = h1High
+float useLow     = h1Low
+float useClose   = h1Close
+float useEma14   = h1Ema14
+float useEma60   = h1Ema60
+float usePrice   = h1Price
+float useMid     = h1Mid
+float useSlow    = h1Slow
+float prevPrice  = h1Price[1]
+float prevSlow   = h1Slow[1]
+float useEmaDist = h1EmaDist
 
-bool emaTouchBuy  = (touch14 and h1Low <= h1EmaF and h1Close > h1EmaF) or (touch60 and h1Low <= h1EmaS and h1Close > h1EmaS)
-bool emaTouchSell = (touch14 and h1High >= h1EmaF and h1Close < h1EmaF) or (touch60 and h1High >= h1EmaS and h1Close < h1EmaS)
-
-// H1 bar boundary
+// H1 bar counter (for armed timeout)
 int  h1BarTime = request.security(syminfo.tickerid, "60", time, lookahead=barmerge.lookahead_off)
 bool newH1Bar  = ta.change(h1BarTime) != 0
 var int h1Count = 0
@@ -137,38 +132,36 @@ if newH1Bar
     h1Count += 1
 
 // ============================================================================
-// M15 DATA — states: realtime / events: confirmed
+// M15 DATA — TDI (lookahead_off = last completed M15 bar, no [1] needed)
 // ============================================================================
-// States (above/below mid) → realtime, no lag
-[m15AboveMid, m15BelowMid] = request.security(
+[m15PriceLine, m15MidLine, m15SlowLine] = request.security(
      syminfo.tickerid, "15",
-     [ta.sma(ta.rsi(close, rsiPeriod), pricePer) > ta.sma(ta.rsi(close, rsiPeriod), bandLen),
-      ta.sma(ta.rsi(close, rsiPeriod), pricePer) < ta.sma(ta.rsi(close, rsiPeriod), bandLen)],
+     [ta.sma(ta.rsi(close, rsiPeriod), pricePer),
+      ta.sma(ta.rsi(close, rsiPeriod), bandLen),
+      ta.sma(ta.rsi(close, rsiPeriod), slowPer)],
      lookahead=barmerge.lookahead_off)
 
-// Events (cross slow) → confirmed bar, no repaint
-[m15CrossUpSlowRaw, m15CrossDnSlowRaw] = request.security(
-     syminfo.tickerid, "15",
-     [ta.crossover(ta.sma(ta.rsi(close, rsiPeriod), pricePer),
-                   ta.sma(ta.rsi(close, rsiPeriod), slowPer))[1],
-      ta.crossunder(ta.sma(ta.rsi(close, rsiPeriod), pricePer),
-                    ta.sma(ta.rsi(close, rsiPeriod), slowPer))[1]],
-     lookahead=barmerge.lookahead_on)
+bool m15BelowMid = m15PriceLine < m15MidLine
+bool m15AboveMid = m15PriceLine > m15MidLine
 
-// M15 bar boundary
+// M15 bar counter (for Step 3→4 timeout)
 int  m15BarTime = request.security(syminfo.tickerid, "15", time, lookahead=barmerge.lookahead_off)
 bool newM15Bar  = ta.change(m15BarTime) != 0
-// M15 cross = edge event → fire once at M15 boundary
-bool m15CrossUpSlow = newM15Bar and m15CrossUpSlowRaw
-bool m15CrossDnSlow = newM15Bar and m15CrossDnSlowRaw
+var int m15Count = 0
+if newM15Bar
+    m15Count += 1
 
-// M15 cross pending latch — จำ cross event รอจนชุด B ใช้
-var bool m15CrossDnPending = false
-var bool m15CrossUpPending = false
-if m15CrossDnSlow
-    m15CrossDnPending := true
-if m15CrossUpSlow
-    m15CrossUpPending := true
+// M15 cross detection: compare consecutive completed M15 bars at boundary
+var float m15PrevPrice = na
+var float m15PrevSlow  = na
+bool m15CrossDnSlow = false
+bool m15CrossUpSlow = false
+if newM15Bar and not na(m15PrevPrice)
+    m15CrossDnSlow := m15PriceLine < m15SlowLine and m15PrevPrice >= m15PrevSlow
+    m15CrossUpSlow := m15PriceLine > m15SlowLine and m15PrevPrice <= m15PrevSlow
+if newM15Bar
+    m15PrevPrice := m15PriceLine
+    m15PrevSlow  := m15SlowLine
 
 // ============================================================================
 // M5 TDI — LOCAL (computed on chart data)
@@ -197,7 +190,15 @@ bool localTouchSell    = localTouchSellE14 or localTouchSellE60
 // SHARED CONDITIONS
 // ============================================================================
 
-// Sideway filter (ใช้ EMA distance จาก H1 confirmed)
+// Step 2: H1 wick touch+bounce EMA (MTF data for M5 chart)
+bool touchBuyE14  = touch14 and useLow <= useEma14 and useClose > useEma14
+bool touchBuyE60  = touch60 and useLow <= useEma60 and useClose > useEma60
+bool touchSellE14 = touch14 and useHigh >= useEma14 and useClose < useEma14
+bool touchSellE60 = touch60 and useHigh >= useEma60 and useClose < useEma60
+bool emaTouchBuy  = touchBuyE14 or touchBuyE60
+bool emaTouchSell = touchSellE14 or touchSellE60
+
+// Sideway filter
 bool isTrending = minEmaDist <= 0 or useEmaDist >= minEmaDist
 
 // Session filter (เวลาไทย)
@@ -206,6 +207,8 @@ bool inSession = not na(time(timeframe.period, sessionTime, "Asia/Bangkok"))
 // ============================================================================
 // ชุด A — Standard: price > mid → EMA touch → M15 < mid → M5 cross
 // ============================================================================
+bool tdiBuyA  = usePrice > useMid
+bool tdiSellA = usePrice < useMid
 
 var bool  buyArmedA     = false
 var bool  sellArmedA    = false
@@ -213,6 +216,8 @@ var int   buyArmedA_at  = 0
 var int   sellArmedA_at = 0
 var bool  buyStep3A     = false
 var bool  sellStep3A    = false
+var int   buyStep3A_at  = 0
+var int   sellStep3A_at = 0
 
 // Reset when H1 TDI condition fails
 if not tdiBuyA
@@ -222,35 +227,29 @@ if not tdiSellA
     sellArmedA := false
     sellStep3A := false
 
-// Cancel if H1 bar after first closes wrong color (buy=red, sell=green)
-if newH1Bar and buyArmedA and (h1Count - buyArmedA_at) > 1 and h1Close < h1Open
-    buyArmedA := false
-    buyStep3A := false
-if newH1Bar and sellArmedA and (h1Count - sellArmedA_at) > 1 and h1Close > h1Open
-    sellArmedA := false
-    sellStep3A := false
-
 // Armed timeout (H1 bars)
-if buyArmedA and (h1Count - buyArmedA_at) >= armedTimeout
+if buyArmedA and (h1Count - buyArmedA_at) > armedTimeout
     buyArmedA := false
     buyStep3A := false
-if sellArmedA and (h1Count - sellArmedA_at) >= armedTimeout
+if sellArmedA and (h1Count - sellArmedA_at) > armedTimeout
     sellArmedA := false
     sellStep3A := false
 
-// Step 1→2: EMA touch+bounce → armed (gate: H1 boundary only, no refresh)
-if newH1Bar and not buyArmedA and tdiBuyA and emaTouchBuy
+// Step 1→2: EMA touch+bounce → armed
+if tdiBuyA and emaTouchBuy
     buyArmedA    := true
-    buyArmedA_at := h1Count - 1
-if newH1Bar and not sellArmedA and tdiSellA and emaTouchSell
+    buyArmedA_at := h1Count
+if tdiSellA and emaTouchSell
     sellArmedA    := true
-    sellArmedA_at := h1Count - 1
+    sellArmedA_at := h1Count
 
 // Step 3 (PB A): M15 price < mid — state check, activate/deactivate
 if buyArmedA and m15BelowMid and not buyStep3A
-    buyStep3A := true
+    buyStep3A    := true
+    buyStep3A_at := m15Count
 if sellArmedA and m15AboveMid and not sellStep3A
-    sellStep3A := true
+    sellStep3A    := true
+    sellStep3A_at := m15Count
 
 // Deactivate when M15 condition no longer met
 if buyStep3A and not m15BelowMid
@@ -258,9 +257,17 @@ if buyStep3A and not m15BelowMid
 if sellStep3A and not m15AboveMid
     sellStep3A := false
 
+// Step 3→4 timeout (M15 bars)
+if buyStep3A and (m15Count - buyStep3A_at) > m5Timeout
+    buyStep3A := false
+if sellStep3A and (m15Count - sellStep3A_at) > m5Timeout
+    sellStep3A := false
+
 // ============================================================================
 // ชุด B — Early: price < mid + cross slow → EMA touch → M15 cross DN slow → M5 cross
 // ============================================================================
+bool priceCrossUpSlow = usePrice > useSlow and prevPrice <= prevSlow
+bool priceCrossDnSlow = usePrice < useSlow and prevPrice >= prevSlow
 
 var bool  buyB_step1     = false
 var bool  sellB_step1    = false
@@ -270,60 +277,54 @@ var int   buyArmedB_at   = 0
 var int   sellArmedB_at  = 0
 var bool  buyStep3B      = false
 var bool  sellStep3B     = false
+var int   buyStep3B_at   = 0
+var int   sellStep3B_at  = 0
 
 // Reset ชุด B: price ข้าม mid → เข้าเขตชุด A
 if usePrice > useMid
     buyB_step1 := false
     buyArmedB  := false
     buyStep3B  := false
-    m15CrossDnPending := false
 if usePrice < useMid
     sellB_step1 := false
     sellArmedB  := false
     sellStep3B  := false
-    m15CrossUpPending := false
-
-// Cancel if H1 bar after first closes wrong color ชุด B
-if newH1Bar and buyArmedB and (h1Count - buyArmedB_at) > 1 and h1Close < h1Open
-    buyArmedB := false
-    buyStep3B := false
-    m15CrossDnPending := false
-if newH1Bar and sellArmedB and (h1Count - sellArmedB_at) > 1 and h1Close > h1Open
-    sellArmedB := false
-    sellStep3B := false
-    m15CrossUpPending := false
 
 // Armed timeout ชุด B (H1 bars)
-if buyArmedB and (h1Count - buyArmedB_at) >= armedTimeout
+if buyArmedB and (h1Count - buyArmedB_at) > armedTimeout
     buyArmedB := false
     buyStep3B := false
-    m15CrossDnPending := false
-if sellArmedB and (h1Count - sellArmedB_at) >= armedTimeout
+if sellArmedB and (h1Count - sellArmedB_at) > armedTimeout
     sellArmedB := false
     sellStep3B := false
-    m15CrossUpPending := false
 
-// Step 1 ชุด B: price < mid + cross slow ขึ้น + RSI filter (gate: H1 boundary)
-if newH1Bar and usePrice < useMid and usePrice > earlyMinRsi and priceCrossUpSlow
+// Step 1 ชุด B: price < mid + cross slow ขึ้น + RSI filter
+if usePrice < useMid and usePrice > earlyMinRsi and priceCrossUpSlow
     buyB_step1 := true
-if newH1Bar and usePrice > useMid and usePrice < (100 - earlyMinRsi) and priceCrossDnSlow
+if usePrice > useMid and usePrice < (100 - earlyMinRsi) and priceCrossDnSlow
     sellB_step1 := true
 
-// Step 2 ชุด B: EMA touch+bounce → armed (gate: H1 boundary, no refresh)
-if newH1Bar and not buyArmedB and buyB_step1 and emaTouchBuy
+// Step 2 ชุด B: EMA touch+bounce → armed
+if buyB_step1 and emaTouchBuy
     buyArmedB    := true
-    buyArmedB_at := h1Count - 1
-if newH1Bar and not sellArmedB and sellB_step1 and emaTouchSell
+    buyArmedB_at := h1Count
+if sellB_step1 and emaTouchSell
     sellArmedB    := true
-    sellArmedB_at := h1Count - 1
+    sellArmedB_at := h1Count
 
-// Step 3 (PB B): M15 above mid + cross DN slow pending — latch
-if buyArmedB and m15AboveMid and m15CrossDnPending and not buyStep3B
-    buyStep3B := true
-    m15CrossDnPending := false
-if sellArmedB and m15BelowMid and m15CrossUpPending and not sellStep3B
-    sellStep3B := true
-    m15CrossUpPending := false
+// Step 3 (PB B): M15 above mid + cross DN slow — no reset once latched
+if buyArmedB and m15AboveMid and m15CrossDnSlow and not buyStep3B
+    buyStep3B    := true
+    buyStep3B_at := m15Count
+if sellArmedB and m15BelowMid and m15CrossUpSlow and not sellStep3B
+    sellStep3B    := true
+    sellStep3B_at := m15Count
+
+// Step 3→4 timeout ชุด B (M15 bars)
+if buyStep3B and (m15Count - buyStep3B_at) > m5Timeout
+    buyStep3B := false
+if sellStep3B and (m15Count - sellStep3B_at) > m5Timeout
+    sellStep3B := false
 
 // ============================================================================
 // STEP 4: M5 TDI cross → PB SIGNAL
@@ -340,14 +341,12 @@ if pbBuyA or pbBuyB
     buyStep3A  := false
     buyStep3B  := false
     buyB_step1 := false
-    m15CrossDnPending := false
 if pbSellA or pbSellB
     sellArmedA  := false
     sellArmedB  := false
     sellStep3A  := false
     sellStep3B  := false
     sellB_step1 := false
-    m15CrossUpPending := false
 
 // Fire-once per M5 bar (A takes priority over B)
 var int lastBuyBI  = -1
@@ -377,11 +376,15 @@ if isH1 and showTouch
         string t = localTouchSellE14 and localTouchSellE60 ? "T14+60" : localTouchSellE14 ? "T14" : "T60"
         label.new(bar_index, high, t, color=color.new(sellClrA, 20), textcolor=color.white, style=label.style_label_down, size=size.tiny)
 
-// Step countdown labels (show H1 armed timeout ticks left)
-int buyTL  = buyArmedA ? math.max(0, armedTimeout - (h1Count - buyArmedA_at))
+// Step countdown labels (show M15 timeout ticks left at signal moment)
+int buyTL  = buyStep3A ? math.max(0, m5Timeout - (m15Count - buyStep3A_at))
+           : buyStep3B ? math.max(0, m5Timeout - (m15Count - buyStep3B_at))
+           : buyArmedA ? math.max(0, armedTimeout - (h1Count - buyArmedA_at))
            : buyArmedB ? math.max(0, armedTimeout - (h1Count - buyArmedB_at))
            : 0
-int sellTL = sellArmedA ? math.max(0, armedTimeout - (h1Count - sellArmedA_at))
+int sellTL = sellStep3A ? math.max(0, m5Timeout - (m15Count - sellStep3A_at))
+           : sellStep3B ? math.max(0, m5Timeout - (m15Count - sellStep3B_at))
+           : sellArmedA ? math.max(0, armedTimeout - (h1Count - sellArmedA_at))
            : sellArmedB ? math.max(0, armedTimeout - (h1Count - sellArmedB_at))
            : 0
 

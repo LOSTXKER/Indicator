@@ -74,7 +74,7 @@ i_debugStoch  = input.bool(false, "🔧 Debug: แสดง K value ที่จ
 
 // ── 🕯️ Momentum Candle ─────────────────────────────────────────────────────
 grpMom       = "🕯️ Momentum Candle"
-i_showMom    = input.bool(true,  "ระบายสีแท่ง",            group = grpMom)
+i_showMom    = input.bool(false, "ระบายสีแท่ง",            group = grpMom)
 i_momDay     = input.bool(false, "Day",  inline = "mTF1", group = grpMom)
 i_momH4      = input.bool(false, "H4",   inline = "mTF1", group = grpMom)
 i_momH1      = input.bool(false, "H1",   inline = "mTF1", group = grpMom)
@@ -218,13 +218,13 @@ momAbvBull = momBody > momAvg and momBull and not momSupBull and momVolOk
 momAbvBear = momBody > momAvg and momBear and not momSupBear and momVolOk
 momState   = momSupBull ? 2 : momSupBear ? -2 : momAbvBull ? 1 : momAbvBear ? -1 : 0
 
-momState_day = i_momDay ? request.security(syminfo.tickerid, "D",   momState) : 0
-momState_h4  = i_momH4  ? request.security(syminfo.tickerid, "240", momState) : 0
-momState_h1  = i_momH1  ? request.security(syminfo.tickerid, "60",  momState) : 0
-momState_m15 = i_momM15 ? request.security(syminfo.tickerid, "15",  momState) : 0
-momState_m5  = i_momM5  ? request.security(syminfo.tickerid, "5",   momState) : 0
-momState_m3  = i_momM3  ? request.security(syminfo.tickerid, "3",   momState) : 0
-momState_m1  = i_momM1  ? request.security(syminfo.tickerid, "1",   momState) : 0
+momState_day = i_showMom and i_momDay ? request.security(syminfo.tickerid, "D",   momState) : 0
+momState_h4  = i_showMom and i_momH4  ? request.security(syminfo.tickerid, "240", momState) : 0
+momState_h1  = i_showMom and i_momH1  ? request.security(syminfo.tickerid, "60",  momState) : 0
+momState_m15 = i_showMom and i_momM15 ? request.security(syminfo.tickerid, "15",  momState) : 0
+momState_m5  = i_showMom and i_momM5  ? request.security(syminfo.tickerid, "5",   momState) : 0
+momState_m3  = i_showMom and i_momM3  ? request.security(syminfo.tickerid, "3",   momState) : 0
+momState_m1  = i_showMom and i_momM1  ? request.security(syminfo.tickerid, "1",   momState) : 0
 
 _momSec     = timeframe.in_seconds()
 momTFActive = (i_momDay and _momSec == timeframe.in_seconds("D"))   or
@@ -307,62 +307,54 @@ trendAfterOvb(int cur, bool isHH, bool isLH) =>
 // Fibo Helper Functions
 // ─────────────────────────────────────────────────────────────────────────────
 
-createFiboSet(float lo, float hi, int startX, int endX, int fType, string fName, int dir, string tfTag, string xlMode, bool showPend) =>
+makeFiboSet(float lo, float hi, int startX, int endX, int dir, string tfTag, string xlMode, bool isEntry, int fType, string fName, bool showPend, color entryCol) =>
     fs = FiboSet.new()
     fs.ovs_low  := lo
     fs.ovb_high := hi
-    fs.status   := ST_PENDING
-    fs.fiboType := fType
+    fs.status   := isEntry ? ST_VALID : ST_PENDING
+    fs.fiboType := isEntry ? FT_HAK_KHO : fType
     fs.fDir     := dir
     fs.ln := array.new<line>()
     fs.lb := array.new<label>()
+    if not isEntry
+        fs.hlIdx := 0
 
-    rng = hi - lo
-    x1  = startX
-    x2  = endX
-
-    baseCol  = i_colPending
-    hlIndex  = 0
-    fs.hlIdx := hlIndex
-
+    rng     = hi - lo
+    _levels = isEntry ? SUP_FIBO_LEVELS : FIBO_LEVELS
+    _labels = isEntry ? SUP_FIBO_LABELS : FIBO_LABELS
     dirTag  = dir == 1 ? "▲" : "▼"
-    nameTag = fName + " เป้า" + dirTag + " " + tfTag
+    nameTag = isEntry ? ("รับ" + dirTag + " " + tfTag) : (fName + " เป้า" + dirTag + " " + tfTag)
+    pendA   = showPend ? 50 : 100
+    lCol    = isEntry ? entryCol : color.new(i_colPending, showPend ? pendA : 100)
+    lW      = isEntry ? 2 : 1
 
-    pendAlpha = showPend ? 50 : 100
-
-    for i = 0 to array.size(FIBO_LEVELS) - 1
-        lvl   = array.get(FIBO_LEVELS, i)
-        price = dir == 1 ? lo + lvl * rng : hi - lvl * rng
-        lbl   = array.get(FIBO_LABELS, i)
-        pTxt  = str.tostring(price, format.mintick)
-
-        isRound  = i == 1
-
-        txt  = lbl + " (" + pTxt + ")"
-        lSty = isRound ? line.style_solid : line.style_dashed
-        lSz  = size.small
-        lAlpha = showPend ? pendAlpha : 100
-        lCol = color.new(baseCol, lAlpha)
-
-        newLine  = line.new(x1, price, x2, price, color = lCol, width = 1, style = lSty, xloc = xlMode)
-        newLabel = label.new(x2, price, txt,
+    for i = 0 to array.size(_levels) - 1
+        lvl   = array.get(_levels, i)
+        price = isEntry ? (dir == 1 ? hi - lvl * rng : lo + lvl * rng) : (dir == 1 ? lo + lvl * rng : hi - lvl * rng)
+        lbl   = array.get(_labels, i)
+        txt   = lbl + " (" + str.tostring(price, format.mintick) + ")"
+        sty   = i == 1 ? line.style_solid : line.style_dashed
+        newLine  = line.new(startX, price, endX, price, color = lCol, width = lW, style = sty, xloc = xlMode)
+        newLabel = label.new(endX, price, txt,
              style = label.style_label_left, color = color.new(color.black, 100),
-             textcolor = lCol, size = lSz, xloc = xlMode)
-
+             textcolor = lCol, size = size.small, xloc = xlMode)
         array.push(fs.ln, newLine)
         array.push(fs.lb, newLabel)
 
-    if dir == 1
-        fs.diagLn := line.new(x1, hi, x2, lo, color = color.new(baseCol, pendAlpha), width = 1, style = line.style_dashed, xloc = xlMode)
+    diagDown = (not isEntry and dir == 1) or (isEntry and dir == -1)
+    diagCol  = isEntry ? entryCol : color.new(i_colPending, pendA)
+    fs.diagLn := diagDown ? line.new(startX, hi, endX, lo, color = diagCol, width = 1, style = line.style_dashed, xloc = xlMode) : line.new(startX, lo, endX, hi, color = diagCol, width = 1, style = line.style_dashed, xloc = xlMode)
+
+    if isEntry
+        fs.bannerLb := label.new(endX, hi, nameTag,
+             style = label.style_label_lower_left, color = color.new(entryCol, 70),
+             textcolor = entryCol, size = size.normal, xloc = xlMode)
     else
-        fs.diagLn := line.new(x1, lo, x2, hi, color = color.new(baseCol, pendAlpha), width = 1, style = line.style_dashed, xloc = xlMode)
-
-    _banAlpha = showPend ? 70 : 100
-    _banTxtCol = showPend ? i_colPending : color.new(i_colPending, 100)
-    fs.bannerLb := label.new(x2, hi, "⏳ " + nameTag,
-         style = label.style_label_lower_left, color = color.new(i_colPending, _banAlpha),
-         textcolor = _banTxtCol, size = size.normal, xloc = xlMode)
-
+        _banA = showPend ? 70 : 100
+        _banT = showPend ? i_colPending : color.new(i_colPending, 100)
+        fs.bannerLb := label.new(endX, hi, "⏳ " + nameTag,
+             style = label.style_label_lower_left, color = color.new(i_colPending, _banA),
+             textcolor = _banT, size = size.normal, xloc = xlMode)
     fs
 
 deleteFiboSet(FiboSet fs) =>
@@ -372,6 +364,11 @@ deleteFiboSet(FiboSet fs) =>
     line.delete(fs.diagLn)
     label.delete(fs.bannerLb)
 
+removeByIndices(FiboSet[] sets, int[] idxs) =>
+    if array.size(idxs) > 0
+        for jj = array.size(idxs) - 1 to 0
+            array.remove(sets, array.get(idxs, jj))
+
 trimFiboSets(FiboSet[] sets, int dir, int maxCount) =>
     _cnt = 0
     if array.size(sets) > 0
@@ -379,16 +376,12 @@ trimFiboSets(FiboSet[] sets, int dir, int maxCount) =>
             if array.get(sets, i).fDir == dir
                 _cnt += 1
     while _cnt > maxCount and array.size(sets) > 0
-        _removed = false
         for i = 0 to array.size(sets) - 1
             if array.get(sets, i).fDir == dir
                 deleteFiboSet(array.get(sets, i))
                 array.remove(sets, i)
                 _cnt -= 1
-                _removed := true
                 break
-        if not _removed
-            break
 
 expirePendingFibos(FiboSet[] sets, int dir) =>
     _exp = array.new<int>()
@@ -398,9 +391,7 @@ expirePendingFibos(FiboSet[] sets, int dir) =>
             if _fs.status == ST_PENDING and _fs.fDir == dir
                 deleteFiboSet(_fs)
                 array.push(_exp, i)
-        if array.size(_exp) > 0
-            for jj = array.size(_exp) - 1 to 0
-                array.remove(sets, array.get(_exp, jj))
+        removeByIndices(sets, _exp)
     array.size(_exp)
 
 confirmFiboSet(FiboSet fs, color col) =>
@@ -433,53 +424,6 @@ confirmFiboSet(FiboSet fs, color col) =>
         label.set_textcolor(fs.bannerLb, col)
         label.set_size(fs.bannerLb, size.normal)
 
-createSupportFiboSet(float lo, float hi, int startX, int endX, int dir, string tfTag, color baseCol, string xlMode) =>
-    fs = FiboSet.new()
-    fs.ovs_low  := lo
-    fs.ovb_high := hi
-    fs.status   := ST_VALID
-    fs.fiboType := FT_HAK_KHO
-    fs.fDir     := dir
-    fs.ln := array.new<line>()
-    fs.lb := array.new<label>()
-
-    rng = hi - lo
-    x1  = startX
-    x2  = endX
-
-    dirTag  = dir == 1 ? "▲" : "▼"
-    nameTag = "รับ" + dirTag + " " + tfTag
-
-    for i = 0 to array.size(SUP_FIBO_LEVELS) - 1
-        lvl   = array.get(SUP_FIBO_LEVELS, i)
-        price = dir == 1 ? hi - lvl * rng : lo + lvl * rng
-        lbl   = array.get(SUP_FIBO_LABELS, i)
-        pTxt  = str.tostring(price, format.mintick)
-
-        is50 = i == 1
-        w   = 2
-        sty = is50 ? line.style_solid : line.style_dashed
-        lSz = size.small
-
-        txt = lbl + " (" + pTxt + ")"
-        newLine  = line.new(x1, price, x2, price, color = baseCol, width = w, style = sty, xloc = xlMode)
-        newLabel = label.new(x2, price, txt,
-             style = label.style_label_left, color = color.new(color.black, 100),
-             textcolor = baseCol, size = lSz, xloc = xlMode)
-
-        array.push(fs.ln, newLine)
-        array.push(fs.lb, newLabel)
-
-    if dir == -1
-        fs.diagLn := line.new(x1, hi, x2, lo, color = baseCol, width = 1, style = line.style_dashed, xloc = xlMode)
-    else
-        fs.diagLn := line.new(x1, lo, x2, hi, color = baseCol, width = 1, style = line.style_dashed, xloc = xlMode)
-
-    fs.bannerLb := label.new(x2, hi, nameTag,
-         style = label.style_label_lower_left, color = color.new(baseCol, 70),
-         textcolor = baseCol, size = size.normal, xloc = xlMode)
-
-    fs
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TFEngine Chart-Visual Methods (marker + trend label)
@@ -503,51 +447,39 @@ method updateOvbPending(TFEngine this, int _t, float _h) =>
         label.set_x(this.curOvbLbl, _t)
         label.set_y(this.curOvbLbl, _h)
 
-method finalizeOvs(TFEngine this, float _kTrig, int _trigT) =>
-    if not na(this.curOvsLbl)
-        // Confirm OVS ตัวก่อนหน้า (ถ้ามี) → เปลี่ยนเป็นสี solid
-        if not na(this.unconfOvsLbl)
-            label.set_color(this.unconfOvsLbl, i_debugStoch ? color.new(color.aqua, 0) : color.aqua)
-            label.set_textcolor(this.unconfOvsLbl, i_debugStoch ? color.black : color.aqua)
-        // OVS ตัวปัจจุบัน → unconfirmed (semi-transparent, รอ OVS ถัดไป confirm)
-        _txt = i_debugStoch ? "S\nk=" + str.tostring(_kTrig, "#.0") : "S"
-        label.set_text(this.curOvsLbl, _txt)
-        label.set_style(this.curOvsLbl, i_debugStoch ? label.style_label_up : label.style_diamond)
-        label.set_color(this.curOvsLbl, i_debugStoch ? color.new(color.aqua, 50) : color.new(color.aqua, 60))
-        label.set_textcolor(this.curOvsLbl, i_debugStoch ? color.new(color.black, 50) : color.new(color.aqua, 60))
-        label.set_size(this.curOvsLbl, i_debugStoch ? size.normal : size.tiny)
-        array.push(this.markers, this.curOvsLbl)
-        this.lockedOvsLbl := this.curOvsLbl
-        this.unconfOvsLbl := this.curOvsLbl
-        this.curOvsLbl := na
+method finalizeMarker(TFEngine this, int side, float _kTrig, int _trigT) =>
+    _isOvs  = side == 1
+    _curLbl = _isOvs ? this.curOvsLbl : this.curOvbLbl
+    if not na(_curLbl)
+        _col    = _isOvs ? color.aqua : color.orange
+        _unconf = _isOvs ? this.unconfOvsLbl : this.unconfOvbLbl
+        if not na(_unconf)
+            label.set_color(_unconf, i_debugStoch ? color.new(_col, 0) : _col)
+            label.set_textcolor(_unconf, i_debugStoch ? color.black : _col)
+        _tag    = _isOvs ? "S" : "B"
+        _txt    = i_debugStoch ? _tag + "\nk=" + str.tostring(_kTrig, "#.0") : _tag
+        _dbgSty = _isOvs ? label.style_label_up : label.style_label_down
+        label.set_text(_curLbl, _txt)
+        label.set_style(_curLbl, i_debugStoch ? _dbgSty : label.style_diamond)
+        label.set_color(_curLbl, i_debugStoch ? color.new(_col, 50) : color.new(_col, 60))
+        label.set_textcolor(_curLbl, i_debugStoch ? color.new(color.black, 50) : color.new(_col, 60))
+        label.set_size(_curLbl, i_debugStoch ? size.normal : size.tiny)
+        array.push(this.markers, _curLbl)
+        if _isOvs
+            this.lockedOvsLbl := _curLbl
+            this.unconfOvsLbl := _curLbl
+            this.curOvsLbl    := na
+        else
+            this.lockedOvbLbl := _curLbl
+            this.unconfOvbLbl := _curLbl
+            this.curOvbLbl    := na
         if i_debugStoch and not na(_trigT)
-            _dbg = label.new(_trigT, 0, "▲TRIG\nk=" + str.tostring(_kTrig, "#.0"),
-                 yloc = yloc.belowbar, style = label.style_label_up,
-                 color = color.new(color.blue, 0), textcolor = color.white,
-                 size = size.normal, xloc = xloc.bar_time)
-            array.push(this.markers, _dbg)
-
-method finalizeOvb(TFEngine this, float _kTrig, int _trigT) =>
-    if not na(this.curOvbLbl)
-        // Confirm OVB ตัวก่อนหน้า (ถ้ามี) → เปลี่ยนเป็นสี solid
-        if not na(this.unconfOvbLbl)
-            label.set_color(this.unconfOvbLbl, i_debugStoch ? color.new(color.orange, 0) : color.orange)
-            label.set_textcolor(this.unconfOvbLbl, i_debugStoch ? color.black : color.orange)
-        // OVB ตัวปัจจุบัน → unconfirmed (semi-transparent, รอ OVB ถัดไป confirm)
-        _txt = i_debugStoch ? "B\nk=" + str.tostring(_kTrig, "#.0") : "B"
-        label.set_text(this.curOvbLbl, _txt)
-        label.set_style(this.curOvbLbl, i_debugStoch ? label.style_label_down : label.style_diamond)
-        label.set_color(this.curOvbLbl, i_debugStoch ? color.new(color.orange, 50) : color.new(color.orange, 60))
-        label.set_textcolor(this.curOvbLbl, i_debugStoch ? color.new(color.black, 50) : color.new(color.orange, 60))
-        label.set_size(this.curOvbLbl, i_debugStoch ? size.normal : size.tiny)
-        array.push(this.markers, this.curOvbLbl)
-        this.lockedOvbLbl := this.curOvbLbl
-        this.unconfOvbLbl := this.curOvbLbl
-        this.curOvbLbl := na
-        if i_debugStoch and not na(_trigT)
-            _dbg = label.new(_trigT, 0, "▼TRIG\nk=" + str.tostring(_kTrig, "#.0"),
-                 yloc = yloc.abovebar, style = label.style_label_down,
-                 color = color.new(color.red, 0), textcolor = color.white,
+            _arrow  = _isOvs ? "▲" : "▼"
+            _yloc   = _isOvs ? yloc.belowbar : yloc.abovebar
+            _dbgCol = _isOvs ? color.new(color.blue, 0) : color.new(color.red, 0)
+            _dbg = label.new(_trigT, 0, _arrow + "TRIG\nk=" + str.tostring(_kTrig, "#.0"),
+                 yloc = _yloc, style = _dbgSty,
+                 color = _dbgCol, textcolor = color.white,
                  size = size.normal, xloc = xloc.bar_time)
             array.push(this.markers, _dbg)
 
@@ -580,26 +512,84 @@ method cleanupVisuals(TFEngine this) =>
 // TFEngine Core Methods
 // ─────────────────────────────────────────────────────────────────────────────
 
+method commitBetweenOvb(TFEngine this, bool isChartTF) =>
+    if not na(this.lockedOvbHi) and not na(this.highSinceValley) and this.highSinceValley > this.lockedOvbHi
+        this.lockedOvbHi  := this.highSinceValley
+        this.lockedOvbHiT := this.highSinceValleyT
+        this.prevOvbHi    := this.highSinceValley
+        this.prevOvbHiT   := this.highSinceValleyT
+        this.confOvbHi    := this.highSinceValley
+        this.confOvbHiT   := this.highSinceValleyT
+        if isChartTF and not na(this.lockedOvbLbl)
+            label.set_x(this.lockedOvbLbl, this.highSinceValleyT)
+            label.set_y(this.lockedOvbLbl, this.highSinceValley)
+
+method commitBetweenOvs(TFEngine this, bool isChartTF) =>
+    if not na(this.lockedOvsLo) and not na(this.lowSincePeak) and this.lowSincePeak < this.lockedOvsLo
+        this.lockedOvsLo  := this.lowSincePeak
+        this.lockedOvsLoT := this.lowSincePeakT
+        this.prevOvsLo    := this.lowSincePeak
+        this.prevOvsLoT   := this.lowSincePeakT
+        if isChartTF and not na(this.lockedOvsLbl)
+            label.set_x(this.lockedOvsLbl, this.lowSincePeakT)
+            label.set_y(this.lockedOvsLbl, this.lowSincePeak)
+
+method transitionToWaitOvb(TFEngine this, float _h, int _t, bool isChartTF) =>
+    this.sm     := SM_WAIT_OVB
+    this.ovsLo  := na
+    this.ovsLoT := na
+    if not na(this.highSinceValley) and this.highSinceValley > _h
+        this.ovbHi  := this.highSinceValley
+        this.ovbHiT := this.highSinceValleyT
+    else
+        this.ovbHi  := _h
+        this.ovbHiT := _t
+    this.lowSincePeak  := na
+    this.lowSincePeakT := na
+    if not na(this.lockedOvbHi) and not na(this.highSinceValley) and this.highSinceValley > this.lockedOvbHi
+        this.prevOvbHi    := this.highSinceValley
+        this.prevOvbHiT   := this.highSinceValleyT
+        this.confOvbHi    := this.highSinceValley
+        this.confOvbHiT   := this.highSinceValleyT
+    this.lockedOvbLbl := na
+    this.lockedOvbHi  := na
+    this.lockedOvbHiT := na
+    this.highSinceValley  := na
+    this.highSinceValleyT := na
+    if isChartTF
+        this.updateOvbPending(this.ovbHiT, this.ovbHi)
+
+method transitionToWaitOvs(TFEngine this, float _fHi, int _fHiT, float _l, int _t, bool isChartTF) =>
+    this.sm     := SM_WAIT_OVS
+    this.ovbHi  := na
+    this.ovbHiT := na
+    this.lockedOvsLbl := na
+    this.lockedOvsLo  := na
+    this.lockedOvsLoT := na
+    this.lockedOvbHi  := _fHi
+    this.lockedOvbHiT := _fHiT
+    this.highSinceValley  := na
+    this.highSinceValleyT := na
+    if not na(this.lowSincePeak) and this.lowSincePeak < _l
+        this.ovsLo  := this.lowSincePeak
+        this.ovsLoT := this.lowSincePeakT
+    else
+        this.ovsLo  := _l
+        this.ovsLoT := _t
+    this.lowSincePeak  := na
+    this.lowSincePeakT := na
+    if isChartTF
+        this.updateOvsPending(this.ovsLoT, this.ovsLo)
+
 method tick(TFEngine this, float _h, float _l, float _c, float _k, int _t, bool isChartTF) =>
     _isOvs = _k < i_ovsLevel
     _isOvb = _k > i_ovbLevel
     _xl    = xloc.bar_time
 
-    // ─── Phase 1: SM_WAIT_OVS — track lowest low (pending OVS), lock ที่ K>80 ───
-    // + Bounded OVB movement: ขยับ OVB ขึ้นได้เฉพาะ wick ที่อยู่ระหว่าง 2 valleys
+    // ─── Phase 1: SM_WAIT_OVS — track lowest low, lock ที่ K>80 ───
     if this.sm == SM_WAIT_OVS
         if na(this.ovsLo) or _l < this.ovsLo
-            // valley ใหม่ → commit highSinceValley (ขยับ OVB ถ้าสูงกว่า)
-            if not na(this.lockedOvbHi) and not na(this.highSinceValley) and this.highSinceValley > this.lockedOvbHi
-                this.lockedOvbHi  := this.highSinceValley
-                this.lockedOvbHiT := this.highSinceValleyT
-                this.prevOvbHi    := this.highSinceValley
-                this.prevOvbHiT   := this.highSinceValleyT
-                this.confOvbHi    := this.highSinceValley
-                this.confOvbHiT   := this.highSinceValleyT
-                if isChartTF and not na(this.lockedOvbLbl)
-                    label.set_x(this.lockedOvbLbl, this.highSinceValleyT)
-                    label.set_y(this.lockedOvbLbl, this.highSinceValley)
+            this.commitBetweenOvb(isChartTF)
             this.highSinceValley  := na
             this.highSinceValleyT := na
             this.ovsLo  := _l
@@ -607,21 +597,17 @@ method tick(TFEngine this, float _h, float _l, float _c, float _k, int _t, bool 
             if isChartTF
                 this.updateOvsPending(_t, _l)
         else
-            // ไม่ใช่ valley ใหม่ → ติดตาม highest high ระหว่าง valley เก่า → valley ปัจจุบัน
             if na(this.highSinceValley) or _h > this.highSinceValley
                 this.highSinceValley  := _h
                 this.highSinceValleyT := _t
 
-        // K>80 → confirm OVS, transition; ovbHi reset → track ใหม่ที่ trigger bar
         if _isOvb and not na(this.ovsLo)
             _sLo  = this.ovsLo
             _sLoT = this.ovsLoT
-
-            // เก็บ position ของ OVS ที่เพิ่ง finalize → ขยับต่อได้ใน SM_WAIT_OVB
             this.lockedOvsLo  := _sLo
             this.lockedOvsLoT := _sLoT
             if isChartTF
-                this.finalizeOvs(_k, _t)
+                this.finalizeMarker(1, _k, _t)
 
             _isHL = not na(this.prevOvsLo) and _sLo > this.prevOvsLo
             _isLL = not na(this.prevOvsLo) and _sLo < this.prevOvsLo
@@ -641,65 +627,25 @@ method tick(TFEngine this, float _h, float _l, float _c, float _k, int _t, bool 
             if expirePendingFibos(this.targetSets, -1) > 0
                 this.canDrawDn := true
 
-            // UP Fibo (จาก OVB เก่า ↘ OVS ใหม่)
             if this.showTarget and this.canDrawUp and not na(this.confOvbHi) and this.confOvbHi > _sLo
                 _show = _fT == FT_HAK_KHO ? i_showHK : i_showSB
                 if _show
-                    _nf = createFiboSet(_sLo, this.confOvbHi, this.confOvbHiT, _sLoT, _fT, _fNm, 1, this.tfTag, _xl, this.showPending)
+                    _nf = makeFiboSet(_sLo, this.confOvbHi, this.confOvbHiT, _sLoT, 1, this.tfTag, _xl, false, _fT, _fNm, this.showPending, na)
                     array.push(this.targetSets, _nf)
                     this.canDrawUp := false
                     trimFiboSets(this.targetSets, 1, i_maxSets)
 
             if this.showEntry and not na(this.confOvbHi) and this.confOvbHi > _sLo
-                _ns = createSupportFiboSet(_sLo, this.confOvbHi, this.confOvbHiT, _sLoT, -1, this.tfTag, this.col, _xl)
+                _ns = makeFiboSet(_sLo, this.confOvbHi, this.confOvbHiT, _sLoT, -1, this.tfTag, _xl, true, 0, "", false, this.col)
                 array.push(this.entrySets, _ns)
                 trimFiboSets(this.entrySets, -1, i_maxSupSets)
 
-            this.sm     := SM_WAIT_OVB
-            this.ovsLo  := na
-            this.ovsLoT := na
-            // Reset ovbHi — carry-over highSinceValley ถ้าสูงกว่า trigger bar (จับ peak ที่ bounded logic พลาด)
-            if not na(this.highSinceValley) and this.highSinceValley > _h
-                this.ovbHi  := this.highSinceValley
-                this.ovbHiT := this.highSinceValleyT
-            else
-                this.ovbHi  := _h
-                this.ovbHiT := _t
-            // Reset lowSincePeak (เริ่ม track ใหม่ใน SM_WAIT_OVB)
-            this.lowSincePeak  := na
-            this.lowSincePeakT := na
-            // Carry-over: อัปเดต confOvbHi/prevOvbHi ถ้า highSinceValley สูงกว่า OVB เดิม (สำหรับ Fibo + trend)
-            if not na(this.lockedOvbHi) and not na(this.highSinceValley) and this.highSinceValley > this.lockedOvbHi
-                this.prevOvbHi    := this.highSinceValley
-                this.prevOvbHiT   := this.highSinceValleyT
-                this.confOvbHi    := this.highSinceValley
-                this.confOvbHiT   := this.highSinceValleyT
-            // Lock OVB marker (ขยับไม่ได้แล้ว เพราะ OVS confirm แล้ว)
-            this.lockedOvbLbl := na
-            this.lockedOvbHi  := na
-            this.lockedOvbHiT := na
-            this.highSinceValley  := na
-            this.highSinceValleyT := na
+            this.transitionToWaitOvb(_h, _t, isChartTF)
 
-            if isChartTF
-                this.updateOvbPending(this.ovbHiT, this.ovbHi)
-
-    // ─── Phase 2: SM_WAIT_OVB — track highest high (pending OVB), lock ที่ K<20 ───
-    // Option C (จำกัด): ขยับ OVS ได้เฉพาะ wick ที่อยู่ "ระหว่าง peak เก่า → peak ใหม่"
-    //   - lowSincePeak track lowest low หลัง peak ล่าสุด
-    //   - เจอ peak ใหม่ → commit lowSincePeak (ถ้าต่ำกว่า lockedOvsLo → ขยับ marker)
-    //   - ถ้าไม่มี peak ใหม่จนถึง K<20 → wick นั้นกลายเป็น pending OVS รอบถัดไป (รักษา alternation)
+    // ─── Phase 2: SM_WAIT_OVB — track highest high, lock ที่ K<20 ───
     else if this.sm == SM_WAIT_OVB
         if na(this.ovbHi) or _h > this.ovbHi
-            // เจอ peak ใหม่ → commit wick ระหว่าง peak เก่า/ใหม่ ไปเป็น OVS ของรอบนี้
-            if not na(this.lockedOvsLo) and not na(this.lowSincePeak) and this.lowSincePeak < this.lockedOvsLo
-                this.lockedOvsLo  := this.lowSincePeak
-                this.lockedOvsLoT := this.lowSincePeakT
-                this.prevOvsLo    := this.lowSincePeak
-                this.prevOvsLoT   := this.lowSincePeakT
-                if isChartTF and not na(this.lockedOvsLbl)
-                    label.set_x(this.lockedOvsLbl, this.lowSincePeakT)
-                    label.set_y(this.lockedOvsLbl, this.lowSincePeak)
+            this.commitBetweenOvs(isChartTF)
             this.ovbHi  := _h
             this.ovbHiT := _t
             this.lowSincePeak  := na
@@ -707,18 +653,15 @@ method tick(TFEngine this, float _h, float _l, float _c, float _k, int _t, bool 
             if isChartTF
                 this.updateOvbPending(_t, _h)
         else
-            // ไม่ใช่ peak ใหม่ → ติดตาม lowest low ระหว่าง peak เก่า → peak ปัจจุบัน
             if na(this.lowSincePeak) or _l < this.lowSincePeak
                 this.lowSincePeak  := _l
                 this.lowSincePeakT := _t
 
-        // K<20 → confirm OVB, lock OVS (no more moves), transition
         if _isOvs
             _fHi  = this.ovbHi
             _fHiT = this.ovbHiT
-
             if isChartTF
-                this.finalizeOvb(_k, _t)
+                this.finalizeMarker(-1, _k, _t)
 
             _isHH = not na(this.prevOvbHi) and _fHi > this.prevOvbHi
             _isLH = not na(this.prevOvbHi) and _fHi < this.prevOvbHi
@@ -741,45 +684,20 @@ method tick(TFEngine this, float _h, float _l, float _c, float _k, int _t, bool 
             this.confOvbHi   := _fHi
             this.confOvbHiT  := _fHiT
 
-            // DN Fibo (จาก OVS เก่า ↗ OVB ใหม่)
             if this.showTarget and this.canDrawDn and not na(this.prevOvsLo) and _fHi > this.prevOvsLo
                 _show = _dnFT == FT_HAK_KHO ? i_showHK : i_showSB
                 if _show
-                    _nf = createFiboSet(this.prevOvsLo, _fHi, this.prevOvsLoT, _fHiT, _dnFT, _dnFNm, -1, this.tfTag, _xl, this.showPending)
+                    _nf = makeFiboSet(this.prevOvsLo, _fHi, this.prevOvsLoT, _fHiT, -1, this.tfTag, _xl, false, _dnFT, _dnFNm, this.showPending, na)
                     array.push(this.targetSets, _nf)
                     this.canDrawDn := false
                     trimFiboSets(this.targetSets, -1, i_maxSets)
 
             if this.showEntry and not na(this.prevOvsLo) and _fHi > this.prevOvsLo
-                _ns = createSupportFiboSet(this.prevOvsLo, _fHi, this.prevOvsLoT, _fHiT, 1, this.tfTag, this.col, _xl)
+                _ns = makeFiboSet(this.prevOvsLo, _fHi, this.prevOvsLoT, _fHiT, 1, this.tfTag, _xl, true, 0, "", false, this.col)
                 array.push(this.entrySets, _ns)
                 trimFiboSets(this.entrySets, 1, i_maxSupSets)
 
-            this.sm     := SM_WAIT_OVS
-            this.ovbHi  := na
-            this.ovbHiT := na
-            // Lock OVS marker (no more moves สำหรับ cycle ที่เพิ่งจบ)
-            this.lockedOvsLbl := na
-            this.lockedOvsLo  := na
-            this.lockedOvsLoT := na
-            // Setup locked OVB → ขยับขึ้นได้ใน SM_WAIT_OVS ถ้าเจอ high สูงกว่า
-            this.lockedOvbHi  := _fHi
-            this.lockedOvbHiT := _fHiT
-            this.highSinceValley  := na
-            this.highSinceValleyT := na
-            // wick หลัง peak สุดท้าย (lowSincePeak) → กลายเป็น pending OVS รอบถัดไป
-            // เทียบกับ trigger bar ใช้อันที่ต่ำกว่า
-            if not na(this.lowSincePeak) and this.lowSincePeak < _l
-                this.ovsLo  := this.lowSincePeak
-                this.ovsLoT := this.lowSincePeakT
-            else
-                this.ovsLo  := _l
-                this.ovsLoT := _t
-            this.lowSincePeak  := na
-            this.lowSincePeakT := na
-
-            if isChartTF
-                this.updateOvsPending(this.ovsLoT, this.ovsLo)
+            this.transitionToWaitOvs(_fHi, _fHiT, _l, _t, isChartTF)
 
 method destroyFibos(TFEngine this, float barH, float barL, float barC) =>
     if array.size(this.targetSets) > 0
@@ -832,11 +750,9 @@ method destroyFibos(TFEngine this, float barH, float barL, float barC) =>
         for i = 0 to array.size(this.entrySets) - 1
             fs = array.get(this.entrySets, i)
             if barL < fs.ovs_low or barH > fs.ovb_high
+                deleteFiboSet(fs)
                 array.push(_toDS, i)
-        if array.size(_toDS) > 0
-            for jj = array.size(_toDS) - 1 to 0
-                deleteFiboSet(array.get(this.entrySets, array.get(_toDS, jj)))
-                array.remove(this.entrySets, array.get(_toDS, jj))
+        removeByIndices(this.entrySets, _toDS)
 
 method feedLowerTF(TFEngine this, float[] _aH, float[] _aL, float[] _aC, float[] _aK, int[] _aT) =>
     for j = 0 to array.size(_aH) - 1
@@ -873,31 +789,18 @@ method process(TFEngine this, bool isChartTF, int ltSz, float[] ltH, float[] ltL
 // TFEngine Instances
 // ─────────────────────────────────────────────────────────────────────────────
 
-var TFEngine engDay = TFEngine.new(tfTag = "Day", col = i_dayCol, showTarget = i_dayTarget, showEntry = i_dayEntry, showPending = i_dayPending,
-     targetSets = array.new<FiboSet>(), entrySets = array.new<FiboSet>(),
-     markers = array.new<label>(), trendLabels = array.new<label>())
-var TFEngine engH4  = TFEngine.new(tfTag = "H4",  col = i_h4Col,  showTarget = i_h4Target,  showEntry = i_h4Entry,  showPending = i_h4Pending,
-     targetSets = array.new<FiboSet>(), entrySets = array.new<FiboSet>(),
-     markers = array.new<label>(), trendLabels = array.new<label>())
-var TFEngine engH1  = TFEngine.new(tfTag = "H1",  col = i_h1Col,  showTarget = i_h1Target,  showEntry = i_h1Entry,  showPending = i_h1Pending,
-     targetSets = array.new<FiboSet>(), entrySets = array.new<FiboSet>(),
-     markers = array.new<label>(), trendLabels = array.new<label>())
-var TFEngine engM15 = TFEngine.new(tfTag = "M15", col = i_m15Col, showTarget = i_m15Target, showEntry = i_m15Entry, showPending = i_m15Pending,
-     targetSets = array.new<FiboSet>(), entrySets = array.new<FiboSet>(),
-     markers = array.new<label>(), trendLabels = array.new<label>())
-var TFEngine engM5  = TFEngine.new(tfTag = "M5",  col = i_m5Col,  showTarget = i_m5Target,  showEntry = i_m5Entry,  showPending = i_m5Pending,
-     targetSets = array.new<FiboSet>(), entrySets = array.new<FiboSet>(),
-     markers = array.new<label>(), trendLabels = array.new<label>())
-var TFEngine engM1  = TFEngine.new(tfTag = "M1",  col = i_m1Col,  showTarget = i_m1Target,  showEntry = i_m1Entry,  showPending = i_m1Pending,
-     targetSets = array.new<FiboSet>(), entrySets = array.new<FiboSet>(),
-     markers = array.new<label>(), trendLabels = array.new<label>())
+newEngine(string tag, color c, bool tgt, bool entry, bool pend) =>
+    TFEngine.new(tfTag = tag, col = c, showTarget = tgt, showEntry = entry, showPending = pend,
+         targetSets = array.new<FiboSet>(), entrySets = array.new<FiboSet>(),
+         markers = array.new<label>(), trendLabels = array.new<label>())
 
-// Dedicated engine สำหรับ chart-TF visuals (marker + trend) — ไม่สร้าง Fibo
-// ทำงานทุก TF โดยไม่ขึ้นกับการเปิด/ปิด target/entry ของ TF ใด
-var TFEngine engChart = TFEngine.new(tfTag = "", col = color.gray,
-     showTarget = false, showEntry = false, showPending = false,
-     targetSets = array.new<FiboSet>(), entrySets = array.new<FiboSet>(),
-     markers = array.new<label>(), trendLabels = array.new<label>())
+var TFEngine engDay   = newEngine("Day", i_dayCol, i_dayTarget, i_dayEntry, i_dayPending)
+var TFEngine engH4    = newEngine("H4",  i_h4Col,  i_h4Target,  i_h4Entry,  i_h4Pending)
+var TFEngine engH1    = newEngine("H1",  i_h1Col,  i_h1Target,  i_h1Entry,  i_h1Pending)
+var TFEngine engM15   = newEngine("M15", i_m15Col, i_m15Target, i_m15Entry, i_m15Pending)
+var TFEngine engM5    = newEngine("M5",  i_m5Col,  i_m5Target,  i_m5Entry,  i_m5Pending)
+var TFEngine engM1    = newEngine("M1",  i_m1Col,  i_m1Target,  i_m1Entry,  i_m1Pending)
+var TFEngine engChart = newEngine("",    color.gray, false,      false,      false)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // RSI Mountain Cut State Machine (คงเดิม, แยกจาก Stoch SM)
@@ -989,8 +892,16 @@ fill(pFast, pSlow, i_showEMAbg ? cloudCol : na, title = "EMA Cloud")
 // H4 EMA (H1 only)
 // ─────────────────────────────────────────────────────────────────────────────
 
-htfEmaRaw  = ta.ema(close, i_htfEMA_Len)
-htfEmaVal  = request.security(syminfo.tickerid, "240", htfEmaRaw)
+int htfMult = switch timeframe.period
+    "1"   => 60
+    "3"   => 20
+    "5"   => 12
+    "15"  => 4
+    "30"  => 2
+    "60"  => 4
+    "240" => 1
+    =>       1
+htfEmaVal  = ta.ema(close, i_htfEMA_Len * htfMult)
 htfAbove   = close > htfEmaVal
 showHTF    = i_showHTF_EMA and isChartH1
 htfCol     = showHTF ? color.new(i_htfEMA_Col, htfAbove ? 0 : 50) : na
