@@ -1,0 +1,431 @@
+// LOSTXKER — Pullback EMA H1 + M15 + M5 Entry
+// ================================================
+// 2 ชุดเงื่อนไข — ใช้ M5 TDI เป็น trigger สุดท้าย:
+//
+// ชุด A — Standard:
+//   Step 1 : H1 TDI price > mid
+//   Step 2 : H1 wick touch+bounce EMA14/60  →  armed
+//   Step 3 : M15 TDI price < mid  (state check)
+//   Step 4 : M5 TDI price cross UP slow  →  PB A!
+//
+// ชุด B — Early:
+//   Step 1 : H1 TDI price < mid แต่ตัด slow MA ขึ้น
+//   Step 2 : H1 wick touch+bounce EMA14/60  →  armed
+//   Step 3 : M15 TDI price > mid AND cross DN slow
+//   Step 4 : M5 TDI price cross UP slow  →  PB B!
+//
+// H4 bias : กำหนดทิศ buy/sell (close vs EMA60)
+// Designed: ดูบน M5 chart (H1+M15 ดึงผ่าน MTF, ไม่ repaint)
+//@version=6
+indicator("LX Pullback M5 (EMA14/60 + TDI)", shorttitle="LX PB M5", overlay=true,
+     max_bars_back=500, max_labels_count=500, max_boxes_count=500, max_lines_count=500)
+
+// ============================================================================
+// TF DETECT
+// ============================================================================
+bool isM5 = timeframe.period == "5"
+bool isH1 = timeframe.period == "60"
+
+// ============================================================================
+// INPUTS
+// ============================================================================
+string GRP_BIAS = "H4 BIAS"
+int    h4EmaLen = input.int(60, "EMA Length (H4 bias)", minval=1, group=GRP_BIAS)
+
+string GRP_EMA = "H1 EMA TOUCH"
+int    emaFastLen = input.int(14, "EMA Fast (H1)", minval=1, group=GRP_EMA)
+int    emaSlowLen = input.int(60, "EMA Slow (H1)", minval=1, group=GRP_EMA)
+bool   touch14    = input.bool(true, "Allow touch EMA14", group=GRP_EMA)
+bool   touch60    = input.bool(true, "Allow touch EMA60", group=GRP_EMA)
+
+string GRP_TDI = "TDI (shared all TF)"
+int    rsiPeriod = input.int(13, "RSI Period",                     minval=1, group=GRP_TDI)
+int    bandLen   = input.int(31, "Band Length (= Mid SMA period)", minval=1, group=GRP_TDI)
+int    pricePer  = input.int(1,  "Price Line Period (SMA of RSI)", minval=1, group=GRP_TDI)
+int    slowPer   = input.int(9,  "Sentiment Slow MA",              minval=1, group=GRP_TDI, tooltip="เส้น Sentiment (สีเขียว) ที่ใช้จับ cross ทุก TF")
+
+string GRP_FILTER = "FILTERS"
+bool   enableA      = input.bool(true, "Enable ชุด A (Standard)",    group=GRP_FILTER)
+bool   enableB      = input.bool(true, "Enable ชุด B (Early entry)", group=GRP_FILTER)
+float  earlyMinRsi  = input.float(40, "Early entry min RSI (ชุด B)", minval=20, maxval=50, step=1, group=GRP_FILTER, tooltip="ชุด B: price line ต้อง > ค่านี้ กรอง bounce จากก้นบึ้ง")
+int    armedTimeout = input.int(3,    "Armed timeout (H1 bars)",     minval=1, maxval=20, group=GRP_FILTER, tooltip="armed (Step 1-2) หมดอายุหลัง N แท่ง H1 ที่ปิดแล้ว")
+float  minEmaDist   = input.float(0,  "Min EMA14-60 distance (pts)", minval=0, step=0.5, group=GRP_FILTER, tooltip="EMA14 กับ 60 ต้องห่างกันอย่างน้อยเท่านี้ (0 = ปิด, กรอง sideway)")
+string sessionTime  = input.string("0730-0100", "Session filter (TH time)", group=GRP_FILTER, tooltip="ช่วงเวลาที่อนุญาตให้มีสัญญาณ (เวลาไทย UTC+7)\n0730-0100 = 07:30–01:00")
+
+string GRP_DISP = "DISPLAY"
+bool   showLabel = input.bool(true,  "Show 'PB' label",     group=GRP_DISP)
+bool   showSteps = input.bool(true,  "Show step countdown",  group=GRP_DISP)
+bool   showTouch = input.bool(true,  "Show H1 EMA touch",   group=GRP_DISP)
+color  buyClrA   = input.color(#26a69a, "Buy color (A)",  group=GRP_DISP)
+color  sellClrA  = input.color(#ef5350, "Sell color (A)", group=GRP_DISP)
+color  buyClrB   = input.color(#66bb6a, "Buy color (B)",  group=GRP_DISP)
+color  sellClrB  = input.color(#ff7043, "Sell color (B)", group=GRP_DISP)
+
+// ============================================================================
+// LX EMA — INPUTS (merged from lostxker-ema)
+// ============================================================================
+string GRP_LXEMA = "LX EMA"
+int    lxEmaLen2  = input.int(14, "EMA 14", group=GRP_LXEMA)
+int    lxEmaLen3  = input.int(60, "EMA 60", group=GRP_LXEMA)
+color  lxEma2Clr  = input.color(color.yellow, "EMA 14 Color", group=GRP_LXEMA)
+color  lxEma3Clr  = input.color(#FF9800,       "EMA 60 Color", group=GRP_LXEMA)
+bool   lxCloudOn  = input.bool(true,  "EMA Cloud Fill", group=GRP_LXEMA)
+
+string GRP_SES = "SESSIONS"
+bool   sesOn    = input.bool(true, "Show Sessions", group=GRP_SES, tooltip="รองรับ DST อัตโนมัติ")
+bool   sesLabel = input.bool(true, "Session Labels", group=GRP_SES)
+bool   tokyoOn  = input.bool(true,  "Tokyo (09-18 JST)",   inline="tk", group=GRP_SES)
+color  tokyoClr = input.color(color.new(#1565c0, 92), "",  inline="tk", group=GRP_SES)
+bool   londonOn = input.bool(true,  "London (08-17 LON)",  inline="ld", group=GRP_SES)
+color  londonClr= input.color(color.new(#ff8f00, 92), "",  inline="ld", group=GRP_SES)
+bool   nyOn     = input.bool(true,  "New York (08-17 NY)", inline="ny", group=GRP_SES)
+color  nyClr    = input.color(color.new(#c62828, 92), "",  inline="ny", group=GRP_SES)
+
+string GRP_AOF = "AOF (Asian Range)"
+bool   aofOn   = input.bool(true, "Show AOF", group=GRP_AOF)
+string aofSess = input.session("0700-1400", "Asian Session (Tokyo)", group=GRP_AOF, tooltip="ใช้เวลา Tokyo (JST, ไม่มี DST)\n• 07:00-14:00 JST = 05:00-12:00 BKK\n• ใช้เป็น S/R ใน London/NY")
+color  aofClr  = input.color(color.new(color.white, 50), "Border Color", group=GRP_AOF)
+
+// ============================================================================
+// H4 BIAS (confirmed bar, no repaint)
+// ============================================================================
+[h4Close, h4Ema] = request.security(syminfo.tickerid, "240",
+     [close[1], ta.ema(close, h4EmaLen)[1]],
+     lookahead=barmerge.lookahead_on)
+
+bool buyBias  = h4Close > h4Ema
+bool sellBias = h4Close < h4Ema
+
+// ============================================================================
+// H1 DATA — confirmed bar (no repaint)
+// ============================================================================
+// Inline expressions → computed ON H1 TF; [1] + lookahead_on = last closed H1 bar
+[usePrice, useMid, useSlow, useEmaDist,
+ tdiBuyA, tdiSellA,
+ emaTouchBuy, emaTouchSell,
+ priceCrossUpSlow, priceCrossDnSlow] = request.security(
+     syminfo.tickerid, "60",
+     [ta.sma(ta.rsi(close, rsiPeriod), pricePer)[1],
+      ta.sma(ta.rsi(close, rsiPeriod), bandLen)[1],
+      ta.sma(ta.rsi(close, rsiPeriod), slowPer)[1],
+      math.abs(ta.ema(close, emaFastLen) - ta.ema(close, emaSlowLen))[1],
+      (ta.sma(ta.rsi(close, rsiPeriod), pricePer) > ta.sma(ta.rsi(close, rsiPeriod), bandLen))[1],
+      (ta.sma(ta.rsi(close, rsiPeriod), pricePer) < ta.sma(ta.rsi(close, rsiPeriod), bandLen))[1],
+      ((touch14 and low <= ta.ema(close, emaFastLen) and close > ta.ema(close, emaFastLen)) or
+       (touch60 and low <= ta.ema(close, emaSlowLen) and close > ta.ema(close, emaSlowLen)))[1],
+      ((touch14 and high >= ta.ema(close, emaFastLen) and close < ta.ema(close, emaFastLen)) or
+       (touch60 and high >= ta.ema(close, emaSlowLen) and close < ta.ema(close, emaSlowLen)))[1],
+      ta.crossover(ta.sma(ta.rsi(close, rsiPeriod), pricePer),
+                   ta.sma(ta.rsi(close, rsiPeriod), slowPer))[1],
+      ta.crossunder(ta.sma(ta.rsi(close, rsiPeriod), pricePer),
+                    ta.sma(ta.rsi(close, rsiPeriod), slowPer))[1]],
+     lookahead=barmerge.lookahead_on)
+
+// H1 bar boundary
+int  h1BarTime = request.security(syminfo.tickerid, "60", time, lookahead=barmerge.lookahead_off)
+bool newH1Bar  = ta.change(h1BarTime) != 0
+var int h1Count = 0
+if newH1Bar
+    h1Count += 1
+
+// ============================================================================
+// M15 DATA — confirmed bar (no repaint)
+// ============================================================================
+// Inline expressions → computed ON M15 TF; [1] + lookahead_on = last closed M15 bar
+[m15AboveMid, m15BelowMid, m15CrossUpSlowRaw, m15CrossDnSlowRaw] = request.security(
+     syminfo.tickerid, "15",
+     [(ta.sma(ta.rsi(close, rsiPeriod), pricePer) > ta.sma(ta.rsi(close, rsiPeriod), bandLen))[1],
+      (ta.sma(ta.rsi(close, rsiPeriod), pricePer) < ta.sma(ta.rsi(close, rsiPeriod), bandLen))[1],
+      ta.crossover(ta.sma(ta.rsi(close, rsiPeriod), pricePer),
+                   ta.sma(ta.rsi(close, rsiPeriod), slowPer))[1],
+      ta.crossunder(ta.sma(ta.rsi(close, rsiPeriod), pricePer),
+                    ta.sma(ta.rsi(close, rsiPeriod), slowPer))[1]],
+     lookahead=barmerge.lookahead_on)
+
+// M15 bar boundary
+int  m15BarTime = request.security(syminfo.tickerid, "15", time, lookahead=barmerge.lookahead_off)
+bool newM15Bar  = ta.change(m15BarTime) != 0
+// M15 cross = edge event → fire once at M15 boundary only
+bool m15CrossUpSlow = newM15Bar and m15CrossUpSlowRaw
+bool m15CrossDnSlow = newM15Bar and m15CrossDnSlowRaw
+
+// ============================================================================
+// M5 TDI — LOCAL (computed on chart data)
+// ============================================================================
+float m5Rsi   = ta.rsi(close, rsiPeriod)
+float m5Price = ta.sma(m5Rsi, pricePer)
+float m5Slow  = ta.sma(m5Rsi, slowPer)
+
+bool m5CrossUpSlow = m5Price > m5Slow and m5Price[1] <= m5Slow[1]
+bool m5CrossDnSlow = m5Price < m5Slow and m5Price[1] >= m5Slow[1]
+
+// ============================================================================
+// H1 LOCAL EMA — ใช้แสดงบนกราฟ H1 โดยตรง
+// ============================================================================
+float localEma14 = ta.ema(close, emaFastLen)
+float localEma60 = ta.ema(close, emaSlowLen)
+
+bool localTouchBuyE14  = touch14 and low <= localEma14 and close > localEma14
+bool localTouchBuyE60  = touch60 and low <= localEma60 and close > localEma60
+bool localTouchSellE14 = touch14 and high >= localEma14 and close < localEma14
+bool localTouchSellE60 = touch60 and high >= localEma60 and close < localEma60
+bool localTouchBuy     = localTouchBuyE14 or localTouchBuyE60
+bool localTouchSell    = localTouchSellE14 or localTouchSellE60
+
+// ============================================================================
+// SHARED CONDITIONS
+// ============================================================================
+
+// Sideway filter (ใช้ EMA distance จาก H1 confirmed)
+bool isTrending = minEmaDist <= 0 or useEmaDist >= minEmaDist
+
+// Session filter (เวลาไทย)
+bool inSession = not na(time(timeframe.period, sessionTime, "Asia/Bangkok"))
+
+// ============================================================================
+// ชุด A — Standard: price > mid → EMA touch → M15 < mid → M5 cross
+// ============================================================================
+
+var bool  buyArmedA     = false
+var bool  sellArmedA    = false
+var int   buyArmedA_at  = 0
+var int   sellArmedA_at = 0
+var bool  buyStep3A     = false
+var bool  sellStep3A    = false
+
+// Reset when H1 TDI condition fails
+if not tdiBuyA
+    buyArmedA := false
+    buyStep3A := false
+if not tdiSellA
+    sellArmedA := false
+    sellStep3A := false
+
+// Armed timeout (H1 bars)
+if buyArmedA and (h1Count - buyArmedA_at) >= armedTimeout
+    buyArmedA := false
+    buyStep3A := false
+if sellArmedA and (h1Count - sellArmedA_at) >= armedTimeout
+    sellArmedA := false
+    sellStep3A := false
+
+// Step 1→2: EMA touch+bounce → armed (gate: H1 boundary only)
+if newH1Bar and tdiBuyA and emaTouchBuy
+    buyArmedA    := true
+    buyArmedA_at := h1Count
+if newH1Bar and tdiSellA and emaTouchSell
+    sellArmedA    := true
+    sellArmedA_at := h1Count
+
+// Step 3 (PB A): M15 price < mid — state check, activate/deactivate
+if buyArmedA and m15BelowMid and not buyStep3A
+    buyStep3A := true
+if sellArmedA and m15AboveMid and not sellStep3A
+    sellStep3A := true
+
+// Deactivate when M15 condition no longer met
+if buyStep3A and not m15BelowMid
+    buyStep3A := false
+if sellStep3A and not m15AboveMid
+    sellStep3A := false
+
+// ============================================================================
+// ชุด B — Early: price < mid + cross slow → EMA touch → M15 cross DN slow → M5 cross
+// ============================================================================
+
+var bool  buyB_step1     = false
+var bool  sellB_step1    = false
+var bool  buyArmedB      = false
+var bool  sellArmedB     = false
+var int   buyArmedB_at   = 0
+var int   sellArmedB_at  = 0
+var bool  buyStep3B      = false
+var bool  sellStep3B     = false
+
+// Reset ชุด B: price ข้าม mid → เข้าเขตชุด A
+if usePrice > useMid
+    buyB_step1 := false
+    buyArmedB  := false
+    buyStep3B  := false
+if usePrice < useMid
+    sellB_step1 := false
+    sellArmedB  := false
+    sellStep3B  := false
+
+// Armed timeout ชุด B (H1 bars)
+if buyArmedB and (h1Count - buyArmedB_at) >= armedTimeout
+    buyArmedB := false
+    buyStep3B := false
+if sellArmedB and (h1Count - sellArmedB_at) >= armedTimeout
+    sellArmedB := false
+    sellStep3B := false
+
+// Step 1 ชุด B: price < mid + cross slow ขึ้น + RSI filter (gate: H1 boundary)
+if newH1Bar and usePrice < useMid and usePrice > earlyMinRsi and priceCrossUpSlow
+    buyB_step1 := true
+if newH1Bar and usePrice > useMid and usePrice < (100 - earlyMinRsi) and priceCrossDnSlow
+    sellB_step1 := true
+
+// Step 2 ชุด B: EMA touch+bounce → armed (gate: H1 boundary)
+if newH1Bar and buyB_step1 and emaTouchBuy
+    buyArmedB    := true
+    buyArmedB_at := h1Count
+if newH1Bar and sellB_step1 and emaTouchSell
+    sellArmedB    := true
+    sellArmedB_at := h1Count
+
+// Step 3 (PB B): M15 above mid + cross DN slow — no reset once latched
+if buyArmedB and m15AboveMid and m15CrossDnSlow and not buyStep3B
+    buyStep3B := true
+if sellArmedB and m15BelowMid and m15CrossUpSlow and not sellStep3B
+    sellStep3B := true
+
+// ============================================================================
+// STEP 4: M5 TDI cross → PB SIGNAL
+// ============================================================================
+bool pbBuyA  = isM5 and inSession and enableA and buyBias  and isTrending and buyStep3A  and m5CrossUpSlow
+bool pbSellA = isM5 and inSession and enableA and sellBias and isTrending and sellStep3A and m5CrossDnSlow
+bool pbBuyB  = isM5 and inSession and enableB and buyBias  and isTrending and buyStep3B  and m5CrossUpSlow
+bool pbSellB = isM5 and inSession and enableB and sellBias and isTrending and sellStep3B and m5CrossDnSlow
+
+// Reset all states after signal fires
+if pbBuyA or pbBuyB
+    buyArmedA  := false
+    buyArmedB  := false
+    buyStep3A  := false
+    buyStep3B  := false
+    buyB_step1 := false
+if pbSellA or pbSellB
+    sellArmedA  := false
+    sellArmedB  := false
+    sellStep3A  := false
+    sellStep3B  := false
+    sellB_step1 := false
+
+// Fire-once per M5 bar (A takes priority over B)
+var int lastBuyBI  = -1
+var int lastSellBI = -1
+
+bool newBuyA  = pbBuyA  and bar_index != lastBuyBI
+bool newSellA = pbSellA and bar_index != lastSellBI
+bool newBuyB  = pbBuyB  and bar_index != lastBuyBI  and not newBuyA
+bool newSellB = pbSellB and bar_index != lastSellBI and not newSellA
+bool newBuy   = newBuyA  or newBuyB
+bool newSell  = newSellA or newSellB
+if newBuy
+    lastBuyBI := bar_index
+if newSell
+    lastSellBI := bar_index
+
+// ============================================================================
+// PLOTS
+// ============================================================================
+
+// H1 EMA Touch markers — แสดงเฉพาะบนกราฟ H1
+if isH1 and showTouch
+    if localTouchBuy
+        string t = localTouchBuyE14 and localTouchBuyE60 ? "T14+60" : localTouchBuyE14 ? "T14" : "T60"
+        label.new(bar_index, low, t, color=color.new(buyClrA, 20), textcolor=color.white, style=label.style_label_up, size=size.tiny)
+    if localTouchSell
+        string t = localTouchSellE14 and localTouchSellE60 ? "T14+60" : localTouchSellE14 ? "T14" : "T60"
+        label.new(bar_index, high, t, color=color.new(sellClrA, 20), textcolor=color.white, style=label.style_label_down, size=size.tiny)
+
+// Step countdown labels (show H1 armed timeout ticks left)
+int buyTL  = buyArmedA ? math.max(0, armedTimeout - (h1Count - buyArmedA_at))
+           : buyArmedB ? math.max(0, armedTimeout - (h1Count - buyArmedB_at))
+           : 0
+int sellTL = sellArmedA ? math.max(0, armedTimeout - (h1Count - sellArmedA_at))
+           : sellArmedB ? math.max(0, armedTimeout - (h1Count - sellArmedB_at))
+           : 0
+
+if showSteps and newBuyA
+    label.new(bar_index, low, str.tostring(buyTL), color=color.new(buyClrA, 40), textcolor=color.white, style=label.style_label_up, size=size.tiny)
+if showSteps and newBuyB
+    label.new(bar_index, low, str.tostring(buyTL), color=color.new(buyClrB, 40), textcolor=color.white, style=label.style_label_up, size=size.tiny)
+if showSteps and newSellA
+    label.new(bar_index, high, str.tostring(sellTL), color=color.new(sellClrA, 40), textcolor=color.white, style=label.style_label_down, size=size.tiny)
+if showSteps and newSellB
+    label.new(bar_index, high, str.tostring(sellTL), color=color.new(sellClrB, 40), textcolor=color.white, style=label.style_label_down, size=size.tiny)
+
+// PB signals — ชุด A
+plotshape(newBuyA,  title="PB-A Buy",  style=shape.triangleup,   location=location.belowbar, color=buyClrA,  size=size.small)
+plotshape(newSellA, title="PB-A Sell", style=shape.triangledown, location=location.abovebar, color=sellClrA, size=size.small)
+plotshape(showLabel and newBuyA,  title="PB-A Buy Lbl",  style=shape.labelup,   location=location.belowbar, color=buyClrA,  textcolor=color.white, text="PB A", size=size.tiny)
+plotshape(showLabel and newSellA, title="PB-A Sell Lbl", style=shape.labeldown, location=location.abovebar, color=sellClrA, textcolor=color.white, text="PB A", size=size.tiny)
+
+// PB signals — ชุด B
+plotshape(newBuyB,  title="PB-B Buy",  style=shape.triangleup,   location=location.belowbar, color=buyClrB,  size=size.small)
+plotshape(newSellB, title="PB-B Sell", style=shape.triangledown, location=location.abovebar, color=sellClrB, size=size.small)
+plotshape(showLabel and newBuyB,  title="PB-B Buy Lbl",  style=shape.labelup,   location=location.belowbar, color=buyClrB,  textcolor=color.white, text="PB B", size=size.tiny)
+plotshape(showLabel and newSellB, title="PB-B Sell Lbl", style=shape.labeldown, location=location.abovebar, color=sellClrB, textcolor=color.white, text="PB B", size=size.tiny)
+
+// ============================================================================
+// LX EMA — CURRENT TF (14/60 + Cloud)
+// ============================================================================
+float lxEma2 = ta.ema(close, lxEmaLen2)
+float lxEma3 = ta.ema(close, lxEmaLen3)
+
+p2 = plot(lxEma2, "EMA 14", color=color.new(lxEma2Clr, 0), linewidth=2)
+p3 = plot(lxEma3, "EMA 60", color=color.new(lxEma3Clr, 0), linewidth=2)
+
+color cloud23 = lxEma2 > lxEma3 ? color.new(color.green, 85) : color.new(color.red, 85)
+fill(p2, p3, color=lxCloudOn ? cloud23 : na, title="Cloud 14-60")
+
+// ============================================================================
+// SESSIONS
+// ============================================================================
+drawSession(string sess, string tz, color clr, string lbl) =>
+    bool inSes = not na(time(timeframe.period, sess, tz))
+    var box  b      = na
+    var bool prevIn = false
+    if inSes and not prevIn
+        b := box.new(bar_index, high, bar_index, low, bgcolor=clr, border_color=color.new(clr, 80), border_width=1)
+        if sesLabel
+            label.new(bar_index, high, lbl, color=color.new(color.black, 100), textcolor=color.new(color.white, 30), style=label.style_label_down, size=size.tiny)
+    if inSes
+        box.set_right(b, bar_index)
+        box.set_top(b,    math.max(box.get_top(b),    high))
+        box.set_bottom(b, math.min(box.get_bottom(b), low))
+    prevIn := inSes
+
+if sesOn
+    if tokyoOn
+        drawSession("0900-1800", "Asia/Tokyo",       tokyoClr,  "Tokyo")
+    if londonOn
+        drawSession("0800-1700", "Europe/London",    londonClr, "London")
+    if nyOn
+        drawSession("0800-1700", "America/New_York", nyClr,     "New York")
+
+// ============================================================================
+// AOF — Asian Session Range
+// ============================================================================
+bool aofIn    = not na(time(timeframe.period, aofSess, "Asia/Tokyo"))
+bool aofStart = aofIn and not aofIn[1]
+
+var float aofHi       = na
+var float aofLo       = na
+var int   aofStartBar = na
+var box   aofBox      = na
+
+if aofStart
+    aofHi       := high
+    aofLo       := low
+    aofStartBar := bar_index
+else if aofIn
+    aofHi := math.max(nz(aofHi, high), high)
+    aofLo := math.min(nz(aofLo, low),  low)
+
+if aofOn and not na(aofStartBar)
+    if not na(aofBox)
+        box.delete(aofBox)
+    aofBox := box.new(aofStartBar, aofHi, bar_index, aofLo, bgcolor=color.new(color.white, 100), border_color=aofClr, border_width=1)
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+alertcondition(newBuy,   title="PB Buy (any)",  message="LX PB-M5 Buy {{ticker}} {{interval}} @ {{close}}")
+alertcondition(newSell,  title="PB Sell (any)", message="LX PB-M5 Sell {{ticker}} {{interval}} @ {{close}}")
+alertcondition(newBuyA,  title="PB-A Buy",      message="LX PB-M5 A Buy {{ticker}} {{interval}} @ {{close}}")
+alertcondition(newSellA, title="PB-A Sell",     message="LX PB-M5 A Sell {{ticker}} {{interval}} @ {{close}}")
+alertcondition(newBuyB,  title="PB-B Buy",      message="LX PB-M5 B Buy {{ticker}} {{interval}} @ {{close}}")
+alertcondition(newSellB, title="PB-B Sell",     message="LX PB-M5 B Sell {{ticker}} {{interval}} @ {{close}}")

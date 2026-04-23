@@ -1,5 +1,5 @@
 // LOSTXKER Signal
-// TF-aware: M5 signals + M15 bar color & dashboard
+// TF-aware: M5 + H1 signals + M15 bar color & dashboard
 //@version=6
 indicator("LOSTXKER Signal", shorttitle="LX Signal", overlay=true, max_labels_count=500, max_boxes_count=500, max_lines_count=500, max_bars_back=500)
 
@@ -15,18 +15,31 @@ int    endH       = input.int(1,  "End Time",   inline="et", group=GRP_ALERT)
 int    endMin     = input.int(0,  ":",           inline="et", group=GRP_ALERT)
 
 // ============================================================================
-// POWERFUL MODE (M5)
+// NOTIFY (Webhook target)
 // ============================================================================
-string GRP_SW = "POWERFUL MODE (M5)"
+string GRP_NOTIFY = "NOTIFY"
+string alertTarget = input.string("LINE Proxy", "Webhook Target", options=["LINE Proxy", "Discord"], group=GRP_NOTIFY, tooltip="เลือกฟอร์แมต payload ให้ตรงกับ Webhook URL ที่ตั้งใน TradingView Alert\n• LINE Proxy → JSON สำหรับ line-webhook-proxy-one.vercel.app\n• Discord → {\"content\":\"...\"} ยิงตรงเข้า Discord Webhook URL")
+
+// ============================================================================
+// SIGNAL TIMEFRAMES
+// ============================================================================
+string GRP_TF = "SIGNAL TIMEFRAMES"
+bool   sigOnM5 = input.bool(true, "Enable M5 Signals", group=GRP_TF)
+bool   sigOnH1 = input.bool(true, "Enable H1 Signals", group=GRP_TF, tooltip="ใช้ logic เดียวกับ M5 (TDI cross + Fair Price + Powerful + HTF EMA60 filter)\nบน H1 ตัว HTF จะเทียบที่ EMA240 ของ H1 (≈ EMA60 ของ H4)")
+
+// ============================================================================
+// POWERFUL MODE (M5/H1)
+// ============================================================================
+string GRP_SW = "POWERFUL MODE (M5/H1)"
 bool   powerfulOn    = input.bool(true, "Powerful Mode (block overextended)", group=GRP_SW, tooltip="กันสัญญาณเบรกเอาต์\n• Buy block: ราคาปิด > จุดสูงสุดของ N แท่งก่อน\n• Sell block: ราคาปิด < จุดต่ำสุดของ N แท่งก่อน")
 int    powerLookback = input.int(11, "Powerful Lookback (bars)", minval=3, maxval=100, group=GRP_SW, tooltip="มองย้อนหลังกี่แท่งเพื่อหา peak / trough\n(ยิ่งสูง = ยิ่ง block ง่าย)")
 bool   powerShowDot  = input.bool(false, "Show Blocked Signal Dot (ม่วง)", group=GRP_SW)
 bool   powerShowRef  = input.bool(false, "Show Powerful Reference Level", group=GRP_SW, tooltip="โชว์เส้นม่วงระดับ peak/trough ที่ใช้เทียบ\n(เอาไว้ดูว่า block ถูกจุดมั้ย)")
 
 // ============================================================================
-// OPTIONAL FILTERS (M5)
+// OPTIONAL FILTERS (M5/H1)
 // ============================================================================
-string GRP_OPT = "OPTIONAL (M5)"
+string GRP_OPT = "OPTIONAL (M5/H1)"
 bool   htfFilterOn   = input.bool(true, "HTF EMA60 Filter (Toggle)", group=GRP_OPT, tooltip="บังคับไส้แท่งฝั่งเดียวกับเทรนด์ใหญ่\n• Buy: high > EMA60 ของ M15 (ไส้บนแตะ cyan)\n• Sell: low < EMA60 ของ M15 (ไส้ล่างแตะ cyan)\n\nปิด = รับสัญญาณแม้เทรนด์ HTF สวนทาง (ไวขึ้น แต่เสี่ยง counter-trend)")
 bool   htfShow       = input.bool(false, "Show HTF EMA60 (cyan)", group=GRP_OPT, tooltip="โชว์เส้น cyan ที่ใช้เป็น HTF filter")
 bool   fairPriceOn   = input.bool(true, "Fair Price (Toggle)", group=GRP_OPT)
@@ -67,6 +80,8 @@ int    sent3Period = input.int(9,      "รวบเส้น 3",        minval=
 // ============================================================================
 bool isM5  = timeframe.period == "5"
 bool isM15 = timeframe.period == "15"
+bool isH1  = timeframe.period == "60"
+bool isSignalTF = (isM5 and sigOnM5) or (isH1 and sigOnH1)
 
 // ============================================================================
 // EMA
@@ -115,7 +130,7 @@ float powerRefHi = ta.highest(high, powerLookback)[1]
 float powerRefLo = ta.lowest(low,   powerLookback)[1]
 
 // ============================================================================
-// M5 SIGNAL: Price crosses รวบเส้น + sent > bbMa + deep pullback
+// SIGNAL CORE (M5/H1): Price crosses รวบเส้น + sent > bbMa + deep pullback
 // ============================================================================
 bool xUp1 = ta.crossover(priceLine, sentiment1) and sentiment1 > bbMa
 bool xUp2 = ta.crossover(priceLine, sentiment2) and sentiment2 > bbMa
@@ -196,8 +211,8 @@ bool isRedBar   = close < open
 bool htfBuyOk  = not htfFilterOn or high > htfEma60
 bool htfSellOk = not htfFilterOn or low  < htfEma60
 
-bool coreBuy  = isM5 and emaBull and ema14 > ema60 and htfBuyOk  and crossUpAboveMid and deepDip and isGreenBar
-bool coreSell = isM5 and not emaBull and ema14 < ema60 and htfSellOk and crossDnBelowMid and deepRise and isRedBar
+bool coreBuy  = isSignalTF and emaBull     and ema14 > ema60 and htfBuyOk  and crossUpAboveMid and deepDip  and isGreenBar
+bool coreSell = isSignalTF and not emaBull and ema14 < ema60 and htfSellOk and crossDnBelowMid and deepRise and isRedBar
 
 bool buySignal  = coreBuy  and fairOk and flatOk and powerBuyOk  and inAlertTime
 bool sellSignal = coreSell and fairOk and flatOk and powerSellOk and inAlertTime
@@ -312,9 +327,11 @@ if dashOn and isM15 and barstate.islast
     table.cell(dash, 2, 6, chkFibo ? "OK" : "X", text_color=chkFibo ? #4caf50 : #f44336, text_size=tblSz)
 
 // ============================================================================
-// ALERTS (JSON payload for LINE webhook proxy)
-//   Endpoint : https://line-webhook-proxy-one.vercel.app/api/trading-alert
-//   Schema   : { type, dir, pair, tf, price, time }
+// ALERTS — รองรับทั้ง LINE Proxy (JSON schema) และ Discord Webhook
+//   LINE Proxy : https://line-webhook-proxy-one.vercel.app/api/trading-alert
+//                schema = { type, dir, pair, tf, price, time }
+//   Discord    : payload = {"content":"(Confirmed) US30 ⏱️20:55 🟢"}
+//                ตั้ง Webhook URL ของ Discord channel ในช่อง Webhook URL ของ TradingView Alert
 // ============================================================================
 string timeStr = str.format("{0,number,00}:{1,number,00}", hour(time, tzStr), minute(time, tzStr))
 
@@ -323,7 +340,7 @@ bool ncSell = sellSignal and not barstate.isconfirmed
 bool cfBuy  = buySignal  and barstate.isconfirmed
 bool cfSell = sellSignal and barstate.isconfirmed
 
-makeAlertJson(string tpe, string dir) =>
+makeLineJson(string tpe, string dir) =>
     '{"type":"' + tpe
      + '","dir":"' + dir
      + '","pair":"' + syminfo.ticker
@@ -331,6 +348,15 @@ makeAlertJson(string tpe, string dir) =>
      + '","price":"' + str.tostring(close, format.mintick)
      + '","time":"' + timeStr
      + '"}'
+
+makeDiscordJson(string tpe, string dir) =>
+    string label = tpe == "CONFIRMED" ? "(Confirmed)" : "(Not confirm)"
+    string emoji = dir == "BULL" ? "🟢" : "🔴"
+    string content = label + " " + syminfo.ticker + " ⏱️" + timeStr + " " + emoji
+    '{"content":"' + content + '"}'
+
+makeAlertJson(string tpe, string dir) =>
+    alertTarget == "Discord" ? makeDiscordJson(tpe, dir) : makeLineJson(tpe, dir)
 
 if ncBuy
     alert(makeAlertJson("NOT_CONFIRM", "BULL"), alert.freq_once_per_bar)
@@ -341,6 +367,13 @@ if ncSell
 if cfSell
     alert(makeAlertJson("CONFIRMED",   "BEAR"), alert.freq_once_per_bar_close)
 
-alertcondition(cfBuy,           title="CF Buy",        message='{"type":"CONFIRMED","dir":"BULL","pair":"{{ticker}}","tf":"{{interval}}","price":"{{close}}"}')
-alertcondition(cfSell,          title="CF Sell",       message='{"type":"CONFIRMED","dir":"BEAR","pair":"{{ticker}}","tf":"{{interval}}","price":"{{close}}"}')
-alertcondition(cfBuy or cfSell, title="All Confirmed", message='{"type":"CONFIRMED","dir":"ANY","pair":"{{ticker}}","tf":"{{interval}}","price":"{{close}}"}')
+// --- LINE Proxy alertconditions (เดิม) ---
+alertcondition(cfBuy,           title="CF Buy (LINE)",        message='{"type":"CONFIRMED","dir":"BULL","pair":"{{ticker}}","tf":"{{interval}}","price":"{{close}}"}')
+alertcondition(cfSell,          title="CF Sell (LINE)",       message='{"type":"CONFIRMED","dir":"BEAR","pair":"{{ticker}}","tf":"{{interval}}","price":"{{close}}"}')
+alertcondition(cfBuy or cfSell, title="All Confirmed (LINE)", message='{"type":"CONFIRMED","dir":"ANY","pair":"{{ticker}}","tf":"{{interval}}","price":"{{close}}"}')
+
+// --- Discord Webhook alertconditions ---
+alertcondition(ncBuy,  title="NC Buy (Discord)",  message='{"content":"(Not confirm) {{ticker}} ⏱️{{time}} 🟢"}')
+alertcondition(ncSell, title="NC Sell (Discord)", message='{"content":"(Not confirm) {{ticker}} ⏱️{{time}} 🔴"}')
+alertcondition(cfBuy,  title="CF Buy (Discord)",  message='{"content":"(Confirmed) {{ticker}} ⏱️{{time}} 🟢"}')
+alertcondition(cfSell, title="CF Sell (Discord)", message='{"content":"(Confirmed) {{ticker}} ⏱️{{time}} 🔴"}')

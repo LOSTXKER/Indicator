@@ -1,0 +1,201 @@
+// ============================================================================
+// BEST HUNTER — Strategy (RR 1:1.5)
+// ============================================================================
+// Mean Reversion strategy จาก Border Line indicator
+// Entry: wick แตะ border + RSI + candle rejection
+// Exit : ATR-based SL → TP = SL × RR ratio
+// ============================================================================
+
+//@version=6
+strategy("BEST HUNTER — Strategy",
+     shorttitle="BHunter STR",
+     overlay=true,
+     default_qty_type=strategy.percent_of_equity,
+     default_qty_value=100,
+     initial_capital=10000,
+     currency=currency.USD,
+     commission_type=strategy.commission.percent,
+     commission_value=0.01,
+     slippage=2,
+     pyramiding=0,
+     calc_on_every_tick=false,
+     process_orders_on_close=true)
+
+// ============================================================================
+// BORDER LINE
+// ============================================================================
+string GRP_BL = "BORDER LINE"
+bool   haOn     = input.bool(true,  "Heikin Ashi Source", group=GRP_BL)
+int    maLen    = input.int(20,     "MA Length",       minval=2,  maxval=400, group=GRP_BL)
+int    smooth   = input.int(5,      "Smooth",          minval=1,  maxval=50,  group=GRP_BL)
+float  mult     = input.float(2.5,  "Multiplier",      minval=0.5, maxval=5.0, step=0.1, group=GRP_BL)
+color  cBorder  = input.color(color.new(#c8b87a, 0), "Border Color", group=GRP_BL)
+
+// ============================================================================
+// SIGNAL CONFIRMATION
+// ============================================================================
+string GRP_CF = "SIGNAL CONFIRMATION"
+bool   rsiOn     = input.bool(true,  "RSI Confirmation", group=GRP_CF)
+int    rsiLen    = input.int(13,    "RSI Length",      minval=2, group=GRP_CF)
+float  rsiOB     = input.float(65,  "RSI Overbought",  minval=55, maxval=90, step=1, group=GRP_CF)
+float  rsiOS     = input.float(35,  "RSI Oversold",    minval=10, maxval=45, step=1, group=GRP_CF)
+bool   rejectOn  = input.bool(true,  "Candle Rejection Filter", group=GRP_CF)
+
+// ============================================================================
+// REGIME FILTER
+// ============================================================================
+string GRP_RF = "REGIME FILTER"
+bool   adxOn    = input.bool(false, "ADX Filter",   group=GRP_RF)
+int    adxLen   = input.int(14,    "ADX Length",    minval=1,  group=GRP_RF)
+float  adxMax   = input.float(25,  "ADX Max",       minval=10, maxval=60, step=1, group=GRP_RF)
+bool   trendOn  = input.bool(false, "EMA Trend Filter", group=GRP_RF)
+int    trendLen = input.int(200,   "EMA Length",    minval=20, group=GRP_RF)
+
+// ============================================================================
+// RISK MANAGEMENT
+// ============================================================================
+string GRP_RM = "RISK MANAGEMENT"
+float  rrRatio    = input.float(1.5,  "Risk:Reward (1:x)", minval=0.5, maxval=5.0, step=0.1, group=GRP_RM,
+     tooltip="1:1.5 = TP เป็น 1.5 เท่าของ SL\n1:2 = TP เป็น 2 เท่าของ SL")
+string slMode     = input.string("ATR", "SL Mode",
+     options=["ATR", "Border Line"], group=GRP_RM,
+     tooltip="ATR = SL ตาม ATR\nBorder Line = SL ที่เส้นกลาง (middle)")
+int    slAtrLen   = input.int(14,    "SL ATR Length",  minval=1,  group=GRP_RM)
+float  slAtrMult  = input.float(1.5, "SL ATR Mult",    minval=0.5, maxval=5.0, step=0.1, group=GRP_RM,
+     tooltip="SL distance = ATR × Mult\n1.5 = default สำหรับ Gold")
+bool   useTrail   = input.bool(false, "Trailing Stop", group=GRP_RM,
+     tooltip="เลื่อน SL ตามราคาเมื่อกำไร\nลด drawdown แต่อาจโดนสะบัดออกก่อนถึง TP")
+bool   closeOnOpp = input.bool(true,  "Close on Opposite Signal", group=GRP_RM,
+     tooltip="ปิด position เมื่อได้สัญญาณตรงข้าม\nเช่น ถือ Buy อยู่ → เจอ Sell → ปิด Buy แล้วเปิด Sell")
+
+// ============================================================================
+// DATE FILTER
+// ============================================================================
+string GRP_DT = "BACKTEST RANGE"
+bool   useDateFilter = input.bool(false, "Use Date Filter", group=GRP_DT)
+int    startYear     = input.int(2024, "Start Year", minval=2000, maxval=2030, group=GRP_DT)
+int    startMonth    = input.int(1,    "Start Month", minval=1, maxval=12, group=GRP_DT)
+int    endYear       = input.int(2026, "End Year",   minval=2000, maxval=2030, group=GRP_DT)
+int    endMonth      = input.int(12,   "End Month",  minval=1, maxval=12, group=GRP_DT)
+
+bool inDateRange = not useDateFilter or (time >= timestamp(startYear, startMonth, 1, 0, 0) and time <= timestamp(endYear, endMonth, 1, 0, 0))
+
+// ============================================================================
+// HEIKIN ASHI SOURCE
+// ============================================================================
+float haClose_ = (open + high + low + close) / 4.0
+var float haOpen_ = na
+haOpen_ := na(haOpen_[1]) ? (open + close) / 2.0 : (nz(haOpen_[1]) + nz(haClose_[1])) / 2.0
+float src = haOn ? haClose_ : close
+
+// ============================================================================
+// DOUBLE-SMOOTH BORDER LINE
+// ============================================================================
+float midRaw  = ta.linreg(src, maLen, 0)
+float atrRaw  = ta.atr(maLen)
+
+float middle  = smooth > 1 ? ta.sma(midRaw, smooth) : midRaw
+float dev     = smooth > 1 ? ta.sma(atrRaw, smooth) : atrRaw
+float upper   = middle + mult * dev
+float lower   = middle - mult * dev
+
+// ============================================================================
+// RSI
+// ============================================================================
+float rsiVal = ta.rsi(close, rsiLen)
+
+// ============================================================================
+// REGIME FILTER
+// ============================================================================
+[diPlus, diMinus, adxVal] = ta.dmi(adxLen, adxLen)
+bool sidewayOK = not adxOn or adxVal < adxMax
+
+float trendEma    = ta.ema(close, trendLen)
+bool  buyTrendOK  = not trendOn or close > trendEma
+bool  sellTrendOK = not trendOn or close < trendEma
+
+// ============================================================================
+// ENTRY SIGNALS
+// ============================================================================
+bool wickAbove    = high > upper
+bool wickBelow    = low  < lower
+bool bodyInsideUp = close < upper
+bool bodyInsideDn = close > lower
+
+bool sellTouch = wickAbove and (not rejectOn or bodyInsideUp)
+bool buyTouch  = wickBelow and (not rejectOn or bodyInsideDn)
+
+bool sellMomentum = not rsiOn or rsiVal > rsiOB
+bool buyMomentum  = not rsiOn or rsiVal < rsiOS
+
+bool sellSig = sellTouch and sellMomentum and sidewayOK and sellTrendOK and barstate.isconfirmed and inDateRange
+bool buySig  = buyTouch  and buyMomentum  and sidewayOK and buyTrendOK  and barstate.isconfirmed and inDateRange
+
+// ============================================================================
+// SL / TP CALCULATION
+// ============================================================================
+float slAtr = ta.atr(slAtrLen)
+
+float longSL  = slMode == "ATR" ? close - slAtr * slAtrMult : middle
+float longTP  = close + math.abs(close - longSL) * rrRatio
+
+float shortSL = slMode == "ATR" ? close + slAtr * slAtrMult : middle
+float shortTP = close - math.abs(shortSL - close) * rrRatio
+
+// ============================================================================
+// EXECUTION
+// ============================================================================
+bool isLong  = strategy.position_size > 0
+bool isShort = strategy.position_size < 0
+bool isFlat  = strategy.position_size == 0
+
+if buySig
+    if isShort and closeOnOpp
+        strategy.close("Short", comment="← opp")
+    if not isLong
+        strategy.entry("Long", strategy.long, comment="BUY")
+        strategy.exit("Long TP/SL", "Long",
+             stop=longSL, limit=longTP,
+             trail_points=useTrail ? slAtr * slAtrMult / syminfo.mintick : na,
+             trail_offset=useTrail ? slAtr * slAtrMult / syminfo.mintick : na)
+
+if sellSig
+    if isLong and closeOnOpp
+        strategy.close("Long", comment="← opp")
+    if not isShort
+        strategy.entry("Short", strategy.short, comment="SELL")
+        strategy.exit("Short TP/SL", "Short",
+             stop=shortSL, limit=shortTP,
+             trail_points=useTrail ? slAtr * slAtrMult / syminfo.mintick : na,
+             trail_offset=useTrail ? slAtr * slAtrMult / syminfo.mintick : na)
+
+// ============================================================================
+// PLOTS
+// ============================================================================
+pUp  = plot(upper,  "Upper Border",  cBorder, 2)
+pMid = plot(middle, "Middle Border", cBorder, 1, style=plot.style_circles)
+pDn  = plot(lower,  "Lower Border",  cBorder, 2)
+fill(pUp, pDn, color=color.new(cBorder, 92))
+
+plot(trendOn ? trendEma : na, "Trend EMA", color.new(color.orange, 40), 1)
+
+plotshape(buySig and not isLong,  "Buy",  shape.triangleup,   location.belowbar, color.new(#448aff, 0), text="BUY",  textcolor=color.new(#448aff, 0), size=size.small)
+plotshape(sellSig and not isShort, "Sell", shape.triangledown, location.abovebar, color.new(#ff5252, 0), text="SELL", textcolor=color.new(#ff5252, 0), size=size.small)
+
+// ============================================================================
+// INFO TABLE
+// ============================================================================
+var table infoTbl = table.new(position.top_right, 2, 7, bgcolor=color.new(#1e1e1e, 10), frame_color=color.new(#c8b87a, 50), frame_width=1, border_width=1)
+
+f_cell(int row, string label, string val, color valCol) =>
+    table.cell(infoTbl, 0, row, label, text_color=color.new(#c8b87a, 20), text_size=size.small, text_halign=text.align_left)
+    table.cell(infoTbl, 1, row, val,   text_color=valCol,                 text_size=size.small, text_halign=text.align_right)
+
+if barstate.islast
+    f_cell(0, "RR Ratio",   "1 : " + str.tostring(rrRatio, "#.#"),   color.white)
+    f_cell(1, "SL Mode",    slMode,                                    color.white)
+    f_cell(2, "RSI",        str.tostring(rsiVal, "#.#"),              rsiVal > rsiOB ? color.red : rsiVal < rsiOS ? color.green : color.gray)
+    f_cell(3, "ADX",        str.tostring(adxVal, "#.#"),              adxOn ? (adxVal < adxMax ? color.green : color.red) : color.gray)
+    f_cell(4, "Position",   isLong ? "LONG" : isShort ? "SHORT" : "FLAT", isLong ? color.green : isShort ? color.red : color.gray)
+    f_cell(5, "Win Rate",   str.tostring(strategy.wintrades / math.max(strategy.closedtrades, 1) * 100, "#.#") + "%", color.white)
+    f_cell(6, "Net P&L",    str.tostring(strategy.netprofit, "#.##"),  strategy.netprofit >= 0 ? color.green : color.red)

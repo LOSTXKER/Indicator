@@ -1,0 +1,196 @@
+// ============================================================================
+// BEST HUNTER — Border Line
+// ============================================================================
+// Mean Reversion + Dual Confirmation (ตามหลัก Gold Hunter)
+//
+// จาก Topindy: "Deviation เหมือน BB แต่ smooth กว่า เน้น Momentum"
+// จาก Sniper-III: ใช้ 2 สัญญาณร่วมกัน —
+//   ลูกศรใหญ่ (ราคาออกนอก border) + ลูกศรเล็ก (momentum ยืนยัน)
+//
+// ปรับปรุง: RSI dual confirmation + candle rejection filter
+// ============================================================================
+
+//@version=6
+indicator("BEST HUNTER — Border Line",
+     shorttitle="BHunter",
+     overlay=true,
+     max_labels_count=500,
+     max_lines_count=500)
+
+// ============================================================================
+// BORDER LINE
+// ============================================================================
+string GRP_BL = "BORDER LINE"
+bool   showBL   = input.bool(true,  "Show Border Line", group=GRP_BL)
+bool   haOn     = input.bool(true,  "Heikin Ashi Source", group=GRP_BL,
+     tooltip="HA Close = ข้อมูลเรียบ (ตาม MQL5 ต้นฉบับ)")
+int    maLen    = input.int(20,     "MA Length",       minval=2,  maxval=400, group=GRP_BL,
+     tooltip="• 20 = default (ตรงต้นฉบับ)\n• 14 = ไว\n• 34+ = นิ่งมาก")
+int    smooth   = input.int(5,      "Smooth",          minval=1,  maxval=50,  group=GRP_BL,
+     tooltip="• 1 = ไม่ smooth\n• 5 = default\n• 12+ = นิ่งมาก")
+float  mult     = input.float(2.5,  "Multiplier",      minval=0.5, maxval=5.0, step=0.1, group=GRP_BL)
+color  cBorder  = input.color(color.new(#c8b87a, 0), "Border Line Color", group=GRP_BL)
+
+// ============================================================================
+// SIGNAL CONFIRMATION
+// ============================================================================
+string GRP_CF = "SIGNAL CONFIRMATION"
+bool   rsiOn     = input.bool(true,  "RSI Confirmation", group=GRP_CF,
+     tooltip="wick แตะ border + RSI ยืนยัน OB/OS\nเพิ่มความแม่น แต่สัญญาณน้อยลง")
+int    rsiLen    = input.int(13,    "RSI Length",      minval=2, group=GRP_CF)
+float  rsiOB     = input.float(65,  "RSI Overbought",  minval=55, maxval=90, step=1, group=GRP_CF,
+     tooltip="65 = หลวม สัญญาณเยอะ\n70 = มาตรฐาน\n75 = เข้ม สัญญาณน้อย")
+float  rsiOS     = input.float(35,  "RSI Oversold",    minval=10, maxval=45, step=1, group=GRP_CF,
+     tooltip="35 = หลวม สัญญาณเยอะ\n30 = มาตรฐาน\n25 = เข้ม สัญญาณน้อย")
+
+bool   rejectOn  = input.bool(true,  "Candle Rejection Filter", group=GRP_CF,
+     tooltip="wick แตะ border แต่ body ปิดกลับเข้าใน band\n= ตลาดปฏิเสธระดับนั้น (rejection)\nแม่นกว่า 'แค่แตะ' มาก")
+
+// ============================================================================
+// REGIME FILTER
+// ============================================================================
+string GRP_RF = "REGIME FILTER"
+bool   adxOn    = input.bool(false, "ADX Filter (Sideway only)",   group=GRP_RF,
+     tooltip="ADX < threshold = sideway → ยิงสัญญาณ\nต้นฉบับ Gold Hunter ไม่มี ADX ในตัว\nเปิดเอง = เพิ่มความแม่นแต่สัญญาณน้อยลง")
+int    adxLen   = input.int(14,    "ADX Length",    minval=1,  group=GRP_RF)
+float  adxMax   = input.float(25,  "ADX Max",       minval=10, maxval=60, step=1, group=GRP_RF)
+bool   trendOn  = input.bool(false, "EMA Trend Filter", group=GRP_RF,
+     tooltip="Buy เฉพาะ price > EMA / Sell เฉพาะ price < EMA\nต้นฉบับให้ผู้ใช้ดูเทรนด์ H4 เอง\nเปิดเอง = กัน short ใน uptrend")
+int    trendLen = input.int(200,   "EMA Length",    minval=20, group=GRP_RF)
+
+// ============================================================================
+// VISUALS
+// ============================================================================
+string GRP_VIS = "VISUALS"
+bool   showSig  = input.bool(true,  "Show Buy/Sell", group=GRP_VIS)
+color  cSell    = input.color(color.new(#ff5252, 0), "Sell color", group=GRP_VIS)
+color  cBuy     = input.color(color.new(#448aff, 0), "Buy color",  group=GRP_VIS)
+
+// ============================================================================
+// NOTIFY
+// ============================================================================
+string GRP_NTF = "NOTIFY"
+string alertFmt = input.string("Plain Text", "Alert Format",
+     options=["Plain Text", "LINE Proxy", "Discord"], group=GRP_NTF)
+int    alertTZ  = input.int(7, "UTC+", minval=-12, maxval=14, group=GRP_NTF)
+
+// ============================================================================
+// HEIKIN ASHI SOURCE
+// ============================================================================
+float haClose_ = (open + high + low + close) / 4.0
+var float haOpen_ = na
+haOpen_ := na(haOpen_[1]) ? (open + close) / 2.0 : (nz(haOpen_[1]) + nz(haClose_[1])) / 2.0
+
+float src = haOn ? haClose_ : close
+
+// ============================================================================
+// DOUBLE-SMOOTH BORDER LINE
+// ============================================================================
+float midRaw  = ta.linreg(src, maLen, 0)
+float atrRaw  = ta.atr(maLen)
+
+float middle  = smooth > 1 ? ta.sma(midRaw, smooth) : midRaw
+float dev     = smooth > 1 ? ta.sma(atrRaw, smooth) : atrRaw
+float upper   = middle + mult * dev
+float lower   = middle - mult * dev
+
+// ============================================================================
+// RSI MOMENTUM
+// ============================================================================
+float rsiVal = ta.rsi(close, rsiLen)
+bool  rsiOverbought = rsiVal > rsiOB
+bool  rsiOversold   = rsiVal < rsiOS
+
+// ============================================================================
+// REGIME FILTER
+// ============================================================================
+[diPlus, diMinus, adxVal] = ta.dmi(adxLen, adxLen)
+bool sidewayOK = not adxOn or adxVal < adxMax
+
+float trendEma    = ta.ema(close, trendLen)
+bool  buyTrendOK  = not trendOn or close > trendEma
+bool  sellTrendOK = not trendOn or close < trendEma
+
+// ============================================================================
+// SIGNALS — 3 ชั้น confirmation
+//   1. Wick แตะ border (price extreme)
+//   2. RSI ยืนยัน OB/OS (momentum extreme)
+//   3. Candle rejection — body ปิดกลับเข้าใน band (market rejection)
+// ============================================================================
+bool wickAbove = high > upper
+bool wickBelow = low  < lower
+
+bool bodyInsideUp = close < upper
+bool bodyInsideDn = close > lower
+
+bool sellTouch = wickAbove and (not rejectOn or bodyInsideUp)
+bool buyTouch  = wickBelow and (not rejectOn or bodyInsideDn)
+
+bool sellMomentum = not rsiOn or rsiOverbought
+bool buyMomentum  = not rsiOn or rsiOversold
+
+bool sellSig = sellTouch and sellMomentum and sidewayOK and sellTrendOK and barstate.isconfirmed
+bool buySig  = buyTouch  and buyMomentum  and sidewayOK and buyTrendOK  and barstate.isconfirmed
+
+// ============================================================================
+// PLOTS
+// ============================================================================
+pUp  = plot(showBL ? upper  : na, "Upper Border",  cBorder, 1)
+pMid = plot(showBL ? middle : na, "Middle Border", cBorder, 1)
+pDn  = plot(showBL ? lower  : na, "Lower Border",  cBorder, 1)
+fill(pUp, pDn, color=showBL ? color.new(cBorder, 92) : na)
+
+plotshape(showSig and sellSig, "Sell",
+     shape.triangledown, location.abovebar, cSell,
+     text="sell", textcolor=cSell, size=size.small)
+plotshape(showSig and buySig, "Buy",
+     shape.triangleup, location.belowbar, cBuy,
+     text="buy", textcolor=cBuy, size=size.small)
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+string tzStr   = alertTZ >= 0 ? str.format("UTC+{0}", alertTZ) : str.format("UTC{0}", alertTZ)
+string timeStr = str.format("{0,number,00}:{1,number,00}", hour(time, tzStr), minute(time, tzStr))
+
+makePlainText(string dir) =>
+    "Tradingview alert : Best Hunter\n"
+     + "------------------\n"
+     + "Symbol : " + syminfo.ticker + "\n"
+     + "Timeframe : " + timeframe.period + "\n"
+     + dir + " signal\n"
+     + "Price : " + str.tostring(close, format.mintick) + "\n"
+     + "Time server : " + str.format("{0,date,yyyy-MM-dd'T'HH:mm:ss'Z'}", time) + "\n"
+     + "------------------\n"
+     + "Note : Every trading orders should have money management.\n"
+     + "Best Hunter"
+
+makeLineJson(string tpe, string dir) =>
+    '{"type":"' + tpe
+     + '","dir":"' + dir
+     + '","pair":"' + syminfo.ticker
+     + '","tf":"' + timeframe.period
+     + '","price":"' + str.tostring(close, format.mintick)
+     + '","time":"' + timeStr
+     + '"}'
+
+makeDiscordJson(string tpe, string dir) =>
+    string label = tpe == "CONFIRMED" ? "(Confirmed)" : "(Not confirm)"
+    string emoji = dir == "BULL" ? "🟢" : "🔴"
+    '{"content":"' + label + " " + syminfo.ticker + " ⏱️" + timeStr + " " + emoji + " BHunter" + '"}'
+
+makeAlert(string dir) =>
+    switch alertFmt
+        "Plain Text"  => makePlainText(dir)
+        "LINE Proxy"  => makeLineJson("CONFIRMED", dir == "Buy" ? "BULL" : "BEAR")
+        "Discord"     => makeDiscordJson("CONFIRMED", dir == "Buy" ? "BULL" : "BEAR")
+        => makePlainText(dir)
+
+if buySig
+    alert(makeAlert("Buy"), alert.freq_once_per_bar_close)
+if sellSig
+    alert(makeAlert("Sell"), alert.freq_once_per_bar_close)
+
+alertcondition(buySig,            "Buy Signal",  '{{strategy.order.alert_message}}')
+alertcondition(sellSig,           "Sell Signal", '{{strategy.order.alert_message}}')
+alertcondition(buySig or sellSig, "All Signals", '{{strategy.order.alert_message}}')

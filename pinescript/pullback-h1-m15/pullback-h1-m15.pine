@@ -1,0 +1,293 @@
+// LOSTXKER — Pullback EMA H1 + M15 TDI Confirm
+// ================================================
+// 2 ชุดเงื่อนไข (ชุดไหนครบก่อนก็ยิง PB):
+//
+// ชุด A — Standard:
+//   Step 1 : H1 TDI price > mid
+//   Step 2 : H1 wick แตะ EMA14/60  →  armed
+//   Step 3 : M15 TDI price (red) cross UP slow (green)  →  PB!
+//
+// ชุด B — Early (price ยังไม่ถึง mid แต่ตัดเส้นเขียวขึ้น):
+//   Step 1 : H1 TDI price < mid แต่ตัด slow MA ขึ้น
+//   Step 2 : H1 wick แตะ EMA14/60  →  armed
+//   Step 3 : M15 TDI price (red) cross UP slow (green)  →  PB!
+//
+// H4 bias : กำหนดทิศ buy/sell (close vs EMA60)
+// Designed: ดูบน M15 (H1+H4 ดึงผ่าน MTF, ไม่ repaint)
+//@version=6
+indicator("LX Pullback H1 (EMA14/60 + TDI)", shorttitle="LX PB H1", overlay=true, max_bars_back=500, max_labels_count=500)
+
+// ============================================================================
+// INPUTS
+// ============================================================================
+string GRP_BIAS = "H4 BIAS"
+int    h4EmaLen = input.int(60, "EMA Length (H4 bias)", minval=1, group=GRP_BIAS)
+
+string GRP_EMA = "H1 EMA TOUCH"
+int    emaFastLen = input.int(14, "EMA Fast (H1)", minval=1, group=GRP_EMA)
+int    emaSlowLen = input.int(60, "EMA Slow (H1)", minval=1, group=GRP_EMA)
+bool   touch14    = input.bool(true, "Allow touch EMA14", group=GRP_EMA)
+bool   touch60    = input.bool(true, "Allow touch EMA60", group=GRP_EMA)
+
+string GRP_TDI = "TDI (shared H1 & M15)"
+int    rsiPeriod  = input.int(13, "RSI Period",                    minval=1, group=GRP_TDI)
+int    bandLen    = input.int(31, "Band Length (= Mid SMA period)", minval=1, group=GRP_TDI)
+int    pricePer   = input.int(1,  "Price Line Period (SMA of RSI)", minval=1, group=GRP_TDI)
+int    m15SlowPer = input.int(9,  "Sentiment Slow MA (M15 TDI)",   minval=1, group=GRP_TDI, tooltip="เส้น Sentiment ที่ใช้จับ pullback pattern บน M15")
+
+string GRP_FILTER = "FILTERS"
+bool   enableA      = input.bool(true, "Enable ชุด A (Standard)",    group=GRP_FILTER)
+bool   enableB      = input.bool(true, "Enable ชุด B (Early entry)", group=GRP_FILTER)
+float  earlyMinRsi  = input.float(40, "Early entry min RSI (ชุด B)", minval=20, maxval=50, step=1, group=GRP_FILTER, tooltip="ชุด B: price line ต้อง > ค่านี้ กรอง bounce จากก้นบึ้ง")
+int    armedTimeout = input.int(3,    "Armed timeout (H1 bars)",     minval=1, maxval=20, group=GRP_FILTER, tooltip="armed หมดอายุหลัง N แท่ง H1 ที่ปิดแล้ว")
+float  minEmaDist   = input.float(0,  "Min EMA14-60 distance (pts)", minval=0, step=0.5, group=GRP_FILTER, tooltip="EMA14 กับ 60 ต้องห่างกันอย่างน้อยเท่านี้ (0 = ปิด, กรอง sideway)")
+
+string GRP_DISP = "DISPLAY"
+bool   showEmas  = input.bool(true,  "Show H1 EMA14/60",   group=GRP_DISP)
+bool   showH4Ema = input.bool(true,  "Show H4 EMA60 bias", group=GRP_DISP)
+bool   showLabel = input.bool(true,  "Show 'PB' label",    group=GRP_DISP)
+bool   showSteps = input.bool(true,  "Show step numbers (1,2,⏱)", group=GRP_DISP)
+color  buyClrA   = input.color(#26a69a, "Buy color (A)",  group=GRP_DISP)
+color  sellClrA  = input.color(#ef5350, "Sell color (A)", group=GRP_DISP)
+color  buyClrB   = input.color(#66bb6a, "Buy color (B)",  group=GRP_DISP)
+color  sellClrB  = input.color(#ff7043, "Sell color (B)", group=GRP_DISP)
+
+// ============================================================================
+// H4 BIAS
+// ============================================================================
+float h4Close = request.security(syminfo.tickerid, "240", close,                     lookahead=barmerge.lookahead_off)
+float h4Ema   = request.security(syminfo.tickerid, "240", ta.ema(close, h4EmaLen),   lookahead=barmerge.lookahead_off)
+
+bool buyBias  = h4Close > h4Ema
+bool sellBias = h4Close < h4Ema
+
+// ============================================================================
+// H1 DATA — EMA + TDI (compute on H1, request confirmed values)
+// ============================================================================
+// Build H1 series tuple via single security() call for efficiency
+[h1High, h1Low, h1Close, h1Ema14, h1Ema60, h1Price, h1Mid, h1Slow, h1EmaDist] = request.security(
+     syminfo.tickerid, "60",
+     [high, low, close,
+      ta.ema(close, emaFastLen),
+      ta.ema(close, emaSlowLen),
+      ta.sma(ta.rsi(close, rsiPeriod), pricePer),
+      ta.sma(ta.rsi(close, rsiPeriod), bandLen),
+      ta.sma(ta.rsi(close, rsiPeriod), m15SlowPer),
+      math.abs(ta.ema(close, emaFastLen) - ta.ema(close, emaSlowLen))],
+     lookahead=barmerge.lookahead_off)
+
+// ใช้ [1] เสมอ (แท่ง H1 ที่ปิดแล้ว) ทุก chart TF → H1 กับ M15 เห็นสัญญาณตรงกัน
+float useHigh   = h1High[1]
+float useLow    = h1Low[1]
+float useClose  = h1Close[1]
+float useEma14  = h1Ema14[1]
+float useEma60  = h1Ema60[1]
+float usePrice  = h1Price[1]
+float useMid    = h1Mid[1]
+float useSlow   = h1Slow[1]
+float prevPrice  = h1Price[2]
+float prevSlow   = h1Slow[2]
+float useEmaDist = h1EmaDist[1]
+
+// ============================================================================
+// M15 TDI — CROSS DETECTION (เส้นแดงตัดเส้นเขียว)
+// ============================================================================
+[m15PriceLine, m15SlowLine] = request.security(
+     syminfo.tickerid, "15",
+     [ta.sma(ta.rsi(close, rsiPeriod), pricePer),
+      ta.sma(ta.rsi(close, rsiPeriod), m15SlowPer)],
+     lookahead=barmerge.lookahead_off)
+
+int  m15BarTime = request.security(syminfo.tickerid, "15", time, lookahead=barmerge.lookahead_off)
+bool newM15Bar  = ta.change(m15BarTime) != 0
+
+var float m15PrevPrice = na
+var float m15PrevSlow  = na
+bool m15CrossUpSlow = false
+bool m15CrossDnSlow = false
+if newM15Bar and not na(m15PrevPrice)
+    m15CrossUpSlow := m15PriceLine > m15SlowLine and m15PrevPrice <= m15PrevSlow
+    m15CrossDnSlow := m15PriceLine < m15SlowLine and m15PrevPrice >= m15PrevSlow
+if newM15Bar
+    m15PrevPrice := m15PriceLine
+    m15PrevSlow  := m15SlowLine
+
+// ============================================================================
+// SEQUENTIAL CONDITIONS — Step 1 → 2 → 3
+// ============================================================================
+
+// --- Step 2 (shared): H1 wick แตะ EMA + close เด้งกลับ (touch & bounce) ---
+bool touchBuyE14  = touch14 and useLow <= useEma14 and useClose > useEma14
+bool touchBuyE60  = touch60 and useLow <= useEma60 and useClose > useEma60
+bool touchSellE14 = touch14 and useHigh >= useEma14 and useClose < useEma14
+bool touchSellE60 = touch60 and useHigh >= useEma60 and useClose < useEma60
+bool emaTouchBuy  = touchBuyE14 or touchBuyE60
+bool emaTouchSell = touchSellE14 or touchSellE60
+
+// --- H1 bar counter (นับแท่ง H1 ที่ปิดแล้วสำหรับ timeout) ---
+int h1BarTime = request.security(syminfo.tickerid, "60", time, lookahead=barmerge.lookahead_off)
+var int h1Count = 0
+if ta.change(h1BarTime) != 0
+    h1Count += 1
+
+// ═══════════════════════════════════════════
+// ชุด A — Standard: price > mid
+// ═══════════════════════════════════════════
+bool tdiBuyA  = usePrice > useMid
+bool tdiSellA = usePrice < useMid
+
+var bool buyArmedA  = false
+var bool sellArmedA = false
+var int  buyArmedA_at  = 0
+var int  sellArmedA_at = 0
+
+if not tdiBuyA
+    buyArmedA := false
+if not tdiSellA
+    sellArmedA := false
+
+// Timeout: armed หมดอายุ
+if buyArmedA and (h1Count - buyArmedA_at) > armedTimeout
+    buyArmedA := false
+if sellArmedA and (h1Count - sellArmedA_at) > armedTimeout
+    sellArmedA := false
+
+if tdiBuyA and emaTouchBuy
+    buyArmedA := true
+    buyArmedA_at := h1Count
+if tdiSellA and emaTouchSell
+    sellArmedA := true
+    sellArmedA_at := h1Count
+
+// ═══════════════════════════════════════════
+// ชุด B — Early: price < mid แต่ตัด slow MA ขึ้น
+// ═══════════════════════════════════════════
+bool priceCrossUpSlow = usePrice > useSlow and prevPrice <= prevSlow
+bool priceCrossDnSlow = usePrice < useSlow and prevPrice >= prevSlow
+
+var bool buyB_step1  = false
+var bool sellB_step1 = false
+var bool buyArmedB   = false
+var bool sellArmedB  = false
+var int  buyArmedB_at  = 0
+var int  sellArmedB_at = 0
+
+// Reset ชุด B: price ข้าม mid → เข้าเขตชุด A แล้ว
+if usePrice > useMid
+    buyB_step1 := false
+    buyArmedB  := false
+if usePrice < useMid
+    sellB_step1 := false
+    sellArmedB  := false
+
+// Timeout ชุด B
+if buyArmedB and (h1Count - buyArmedB_at) > armedTimeout
+    buyArmedB := false
+if sellArmedB and (h1Count - sellArmedB_at) > armedTimeout
+    sellArmedB := false
+
+// Step 1 ชุด B: price < mid แต่ตัด slow ขึ้น + RSI filter กรอง bounce ปลอม
+if usePrice < useMid and usePrice > earlyMinRsi and priceCrossUpSlow
+    buyB_step1 := true
+if usePrice > useMid and usePrice < (100 - earlyMinRsi) and priceCrossDnSlow
+    sellB_step1 := true
+
+// Step 2 ชุด B: step 1 ผ่านแล้ว + EMA touch & bounce → armed
+if buyB_step1 and emaTouchBuy
+    buyArmedB := true
+    buyArmedB_at := h1Count
+if sellB_step1 and emaTouchSell
+    sellArmedB := true
+    sellArmedB_at := h1Count
+
+// ═══════════════════════════════════════════
+// Sideway filter: EMA14-60 ต้องห่างกันพอ (ตลาด trending)
+// ═══════════════════════════════════════════
+bool isTrending = minEmaDist <= 0 or useEmaDist >= minEmaDist
+
+// ═══════════════════════════════════════════
+// Step 3: M15 เส้นแดงตัดเส้นเขียวขึ้น/ลง ขณะ armed + trending → PB!
+// ═══════════════════════════════════════════
+bool pbBuyA  = enableA and buyBias  and isTrending and buyArmedA  and m15CrossUpSlow
+bool pbSellA = enableA and sellBias and isTrending and sellArmedA and m15CrossDnSlow
+bool pbBuyB  = enableB and buyBias  and isTrending and buyArmedB  and m15CrossUpSlow
+bool pbSellB = enableB and sellBias and isTrending and sellArmedB and m15CrossDnSlow
+
+// Reset armed หลังยิง PB
+if pbBuyA or pbBuyB
+    buyArmedA  := false
+    buyArmedB  := false
+    buyB_step1 := false
+if pbSellA or pbSellB
+    sellArmedA  := false
+    sellArmedB  := false
+    sellB_step1 := false
+
+// --- Fire-once (ป้องกันสัญญาณซ้ำบน chart bar เดิม) ---
+var int lastBuyBI  = -1
+var int lastSellBI = -1
+
+bool newBuyA  = pbBuyA  and bar_index != lastBuyBI
+bool newSellA = pbSellA and bar_index != lastSellBI
+bool newBuyB  = pbBuyB  and bar_index != lastBuyBI  and not newBuyA
+bool newSellB = pbSellB and bar_index != lastSellBI and not newSellA
+bool newBuy   = newBuyA  or newBuyB
+bool newSell  = newSellA or newSellB
+if newBuy
+    lastBuyBI := bar_index
+if newSell
+    lastSellBI := bar_index
+
+// ============================================================================
+// PLOTS
+// ============================================================================
+plot(showEmas  ? useEma14 : na, "H1 EMA14",  color=color.new(#42a5f5, 0), linewidth=2)
+plot(showEmas  ? useEma60 : na, "H1 EMA60",  color=color.new(#ab47bc, 0), linewidth=2)
+plot(showH4Ema ? h4Ema    : na, "H4 EMA60",  color=color.new(#ffb300, 0), linewidth=2, style=plot.style_line)
+
+// Armed countdown — แสดงเลขนับถอยหลังเฉพาะตอน armed
+bool isArmedBuy  = buyArmedA or buyArmedB
+bool isArmedSell = sellArmedA or sellArmedB
+int  buyTicksLeft  = buyArmedA ? math.max(0, armedTimeout - (h1Count - buyArmedA_at)) : buyArmedB ? math.max(0, armedTimeout - (h1Count - buyArmedB_at)) : 0
+int  sellTicksLeft = sellArmedA ? math.max(0, armedTimeout - (h1Count - sellArmedA_at)) : sellArmedB ? math.max(0, armedTimeout - (h1Count - sellArmedB_at)) : 0
+
+bool newH1Bar = ta.change(h1BarTime) != 0
+bool step2Buy  = isArmedBuy  and not (isArmedBuy[1])
+bool step2Sell = isArmedSell and not (isArmedSell[1])
+
+if showSteps and newBuyA
+    label.new(bar_index, low, str.tostring(buyTicksLeft), color=color.new(buyClrA, 40), textcolor=color.white, style=label.style_label_up, size=size.tiny)
+if showSteps and newBuyB
+    label.new(bar_index, low, str.tostring(buyTicksLeft), color=color.new(buyClrB, 40), textcolor=color.white, style=label.style_label_up, size=size.tiny)
+if showSteps and newSellA
+    label.new(bar_index, high, str.tostring(sellTicksLeft), color=color.new(sellClrA, 40), textcolor=color.white, style=label.style_label_down, size=size.tiny)
+if showSteps and newSellB
+    label.new(bar_index, high, str.tostring(sellTicksLeft), color=color.new(sellClrB, 40), textcolor=color.white, style=label.style_label_down, size=size.tiny)
+
+// PB signals — ชุด A
+plotshape(newBuyA,  title="PB-A Buy",  style=shape.triangleup,   location=location.belowbar, color=buyClrA,  size=size.small)
+plotshape(newSellA, title="PB-A Sell", style=shape.triangledown, location=location.abovebar, color=sellClrA, size=size.small)
+plotshape(showLabel and newBuyA,  title="PB-A Buy Label",  style=shape.labelup,   location=location.belowbar, color=buyClrA,  textcolor=color.white, text="PB A", size=size.tiny)
+plotshape(showLabel and newSellA, title="PB-A Sell Label", style=shape.labeldown, location=location.abovebar, color=sellClrA, textcolor=color.white, text="PB A", size=size.tiny)
+
+// PB signals — ชุด B
+plotshape(newBuyB,  title="PB-B Buy",  style=shape.triangleup,   location=location.belowbar, color=buyClrB,  size=size.small)
+plotshape(newSellB, title="PB-B Sell", style=shape.triangledown, location=location.abovebar, color=sellClrB, size=size.small)
+plotshape(showLabel and newBuyB,  title="PB-B Buy Label",  style=shape.labelup,   location=location.belowbar, color=buyClrB,  textcolor=color.white, text="PB B", size=size.tiny)
+plotshape(showLabel and newSellB, title="PB-B Sell Label", style=shape.labeldown, location=location.abovebar, color=sellClrB, textcolor=color.white, text="PB B", size=size.tiny)
+
+// ============================================================================
+// BG TINT (bias zone)
+// ============================================================================
+bgcolor(buyBias  ? color.new(buyClrA, 92)  : na, title="Buy bias bg")
+bgcolor(sellBias ? color.new(sellClrA, 92) : na, title="Sell bias bg")
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+alertcondition(newBuy,   title="PB Buy (any)",  message="LX PB Buy {{ticker}} {{interval}} @ {{close}}")
+alertcondition(newSell,  title="PB Sell (any)", message="LX PB Sell {{ticker}} {{interval}} @ {{close}}")
+alertcondition(newBuyA,  title="PB-A Buy",     message="LX PB-A Buy {{ticker}} {{interval}} @ {{close}}")
+alertcondition(newSellA, title="PB-A Sell",    message="LX PB-A Sell {{ticker}} {{interval}} @ {{close}}")
+alertcondition(newBuyB,  title="PB-B Buy",     message="LX PB-B Buy {{ticker}} {{interval}} @ {{close}}")
+alertcondition(newSellB, title="PB-B Sell",    message="LX PB-B Sell {{ticker}} {{interval}} @ {{close}}")

@@ -1,0 +1,331 @@
+// LOSTXKER — Pullback EMA H1 + M15 + M5 Strategy
+// ================================================
+// Signal logic เหมือน pullback-m5.pine (indicator)
+// เพิ่ม: SL ที่ Swing Low/High M5 + TP RR 1:1.5 + Risk % sizing
+//@version=6
+strategy("LX PB M5 Strategy", shorttitle="LX PB M5 STR", overlay=true, max_bars_back=500,
+     initial_capital=10000, default_qty_type=strategy.fixed, default_qty_value=1,
+     commission_type=strategy.commission.percent, commission_value=0,
+     slippage=1, pyramiding=0, margin_long=1, margin_short=1)
+
+// ============================================================================
+// INPUTS — SIGNAL
+// ============================================================================
+string GRP_BIAS = "H4 BIAS"
+int    h4EmaLen = input.int(60, "EMA Length (H4 bias)", minval=1, group=GRP_BIAS)
+
+string GRP_EMA = "H1 EMA TOUCH"
+int    emaFastLen = input.int(14, "EMA Fast (H1)", minval=1, group=GRP_EMA)
+int    emaSlowLen = input.int(60, "EMA Slow (H1)", minval=1, group=GRP_EMA)
+bool   touch14    = input.bool(true, "Allow touch EMA14", group=GRP_EMA)
+bool   touch60    = input.bool(true, "Allow touch EMA60", group=GRP_EMA)
+
+string GRP_TDI = "TDI (shared all TF)"
+int    rsiPeriod = input.int(13, "RSI Period",                     minval=1, group=GRP_TDI)
+int    bandLen   = input.int(31, "Band Length (= Mid SMA period)", minval=1, group=GRP_TDI)
+int    pricePer  = input.int(1,  "Price Line Period (SMA of RSI)", minval=1, group=GRP_TDI)
+int    slowPer   = input.int(9,  "Sentiment Slow MA",              minval=1, group=GRP_TDI, tooltip="เส้น Sentiment (สีเขียว) ที่ใช้จับ cross ทุก TF")
+
+string GRP_FILTER = "FILTERS"
+bool   enableA      = input.bool(true, "Enable ชุด A (Standard)",    group=GRP_FILTER)
+bool   enableB      = input.bool(true, "Enable ชุด B (Early entry)", group=GRP_FILTER)
+float  earlyMinRsi  = input.float(40, "Early entry min RSI (ชุด B)", minval=20, maxval=50, step=1, group=GRP_FILTER)
+int    armedTimeout = input.int(3,    "Armed timeout (H1 bars)",     minval=1, maxval=20, group=GRP_FILTER)
+int    m5Timeout    = input.int(4,    "M5 timeout (M15 bars)",       minval=1, maxval=20, group=GRP_FILTER)
+float  minEmaDist   = input.float(0,  "Min EMA14-60 distance (pts)", minval=0, step=0.5, group=GRP_FILTER)
+string sessionTime  = input.string("0730-0100", "Session filter (TH time)", group=GRP_FILTER)
+
+// ============================================================================
+// INPUTS — STRATEGY
+// ============================================================================
+string GRP_STRAT = "STRATEGY"
+int    swingLen   = input.int(10,    "Swing lookback (M5 bars)",  minval=3,   maxval=50,  group=GRP_STRAT, tooltip="จำนวนแท่ง M5 ย้อนหลังหา Swing Low/High สำหรับ SL")
+float  slBuffer   = input.float(0,   "SL buffer (pts)",          minval=0,   step=0.5,   group=GRP_STRAT, tooltip="เพิ่มระยะห่างจาก Swing เล็กน้อย ป้องกัน wick หลอก")
+float  rrRatio    = input.float(1.5,  "Risk:Reward ratio",       minval=0.5, maxval=5.0, step=0.1, group=GRP_STRAT)
+float  riskPct    = input.float(1.0,  "Risk % per trade",        minval=0.1, maxval=10,  step=0.1, group=GRP_STRAT, tooltip="% ของ equity ที่ยอมเสียต่อเทรด")
+
+string GRP_DISP = "DISPLAY"
+bool   showEmas  = input.bool(true, "Show H1 EMA14/60",   group=GRP_DISP)
+bool   showH4Ema = input.bool(true, "Show H4 EMA60 bias", group=GRP_DISP)
+bool   showSlTp  = input.bool(true, "Show SL/TP lines",   group=GRP_DISP)
+
+// ============================================================================
+// H4 BIAS
+// ============================================================================
+[h4Close, h4Ema] = request.security(syminfo.tickerid, "240",
+     [close, ta.ema(close, h4EmaLen)],
+     lookahead=barmerge.lookahead_off)
+
+bool buyBias  = h4Close > h4Ema
+bool sellBias = h4Close < h4Ema
+
+// ============================================================================
+// H1 DATA — EMA + TDI
+// ============================================================================
+[h1High, h1Low, h1Close, h1Ema14, h1Ema60, h1Price, h1Mid, h1Slow, h1EmaDist] = request.security(
+     syminfo.tickerid, "60",
+     [high, low, close,
+      ta.ema(close, emaFastLen),
+      ta.ema(close, emaSlowLen),
+      ta.sma(ta.rsi(close, rsiPeriod), pricePer),
+      ta.sma(ta.rsi(close, rsiPeriod), bandLen),
+      ta.sma(ta.rsi(close, rsiPeriod), slowPer),
+      math.abs(ta.ema(close, emaFastLen) - ta.ema(close, emaSlowLen))],
+     lookahead=barmerge.lookahead_off)
+
+float useHigh    = h1High
+float useLow     = h1Low
+float useClose   = h1Close
+float useEma14   = h1Ema14
+float useEma60   = h1Ema60
+float usePrice   = h1Price
+float useMid     = h1Mid
+float useSlow    = h1Slow
+float prevPrice  = h1Price[1]
+float prevSlow   = h1Slow[1]
+float useEmaDist = h1EmaDist
+
+int  h1BarTime = request.security(syminfo.tickerid, "60", time, lookahead=barmerge.lookahead_off)
+bool newH1Bar  = ta.change(h1BarTime) != 0
+var int h1Count = 0
+if newH1Bar
+    h1Count += 1
+
+// ============================================================================
+// M15 DATA — TDI
+// ============================================================================
+[m15PriceLine, m15MidLine, m15SlowLine] = request.security(
+     syminfo.tickerid, "15",
+     [ta.sma(ta.rsi(close, rsiPeriod), pricePer),
+      ta.sma(ta.rsi(close, rsiPeriod), bandLen),
+      ta.sma(ta.rsi(close, rsiPeriod), slowPer)],
+     lookahead=barmerge.lookahead_off)
+
+bool m15BelowMid = m15PriceLine < m15MidLine
+bool m15AboveMid = m15PriceLine > m15MidLine
+
+int  m15BarTime = request.security(syminfo.tickerid, "15", time, lookahead=barmerge.lookahead_off)
+bool newM15Bar  = ta.change(m15BarTime) != 0
+var int m15Count = 0
+if newM15Bar
+    m15Count += 1
+
+var float m15PrevPrice = na
+var float m15PrevSlow  = na
+bool m15CrossDnSlow = false
+bool m15CrossUpSlow = false
+if newM15Bar and not na(m15PrevPrice)
+    m15CrossDnSlow := m15PriceLine < m15SlowLine and m15PrevPrice >= m15PrevSlow
+    m15CrossUpSlow := m15PriceLine > m15SlowLine and m15PrevPrice <= m15PrevSlow
+if newM15Bar
+    m15PrevPrice := m15PriceLine
+    m15PrevSlow  := m15SlowLine
+
+// ============================================================================
+// M5 TDI — LOCAL
+// ============================================================================
+float m5Rsi   = ta.rsi(close, rsiPeriod)
+float m5Price = ta.sma(m5Rsi, pricePer)
+float m5Slow  = ta.sma(m5Rsi, slowPer)
+
+bool m5CrossUpSlow = m5Price > m5Slow and m5Price[1] <= m5Slow[1]
+bool m5CrossDnSlow = m5Price < m5Slow and m5Price[1] >= m5Slow[1]
+
+// ============================================================================
+// SHARED CONDITIONS
+// ============================================================================
+bool touchBuyE14  = touch14 and useLow <= useEma14 and useClose > useEma14
+bool touchBuyE60  = touch60 and useLow <= useEma60 and useClose > useEma60
+bool touchSellE14 = touch14 and useHigh >= useEma14 and useClose < useEma14
+bool touchSellE60 = touch60 and useHigh >= useEma60 and useClose < useEma60
+bool emaTouchBuy  = touchBuyE14 or touchBuyE60
+bool emaTouchSell = touchSellE14 or touchSellE60
+
+bool isTrending = minEmaDist <= 0 or useEmaDist >= minEmaDist
+bool inSession = not na(time(timeframe.period, sessionTime, "Asia/Bangkok"))
+
+// ============================================================================
+// ชุด A — Standard
+// ============================================================================
+bool tdiBuyA  = usePrice > useMid
+bool tdiSellA = usePrice < useMid
+
+var bool buyArmedA     = false
+var bool sellArmedA    = false
+var int  buyArmedA_at  = 0
+var int  sellArmedA_at = 0
+var bool buyStep3A     = false
+var bool sellStep3A    = false
+var int  buyStep3A_at  = 0
+var int  sellStep3A_at = 0
+
+if not tdiBuyA
+    buyArmedA := false
+    buyStep3A := false
+if not tdiSellA
+    sellArmedA := false
+    sellStep3A := false
+
+if buyArmedA and (h1Count - buyArmedA_at) > armedTimeout
+    buyArmedA := false
+    buyStep3A := false
+if sellArmedA and (h1Count - sellArmedA_at) > armedTimeout
+    sellArmedA := false
+    sellStep3A := false
+
+if tdiBuyA and emaTouchBuy
+    buyArmedA    := true
+    buyArmedA_at := h1Count
+if tdiSellA and emaTouchSell
+    sellArmedA    := true
+    sellArmedA_at := h1Count
+
+if buyArmedA and m15BelowMid and not buyStep3A
+    buyStep3A    := true
+    buyStep3A_at := m15Count
+if sellArmedA and m15AboveMid and not sellStep3A
+    sellStep3A    := true
+    sellStep3A_at := m15Count
+
+if buyStep3A and not m15BelowMid
+    buyStep3A := false
+if sellStep3A and not m15AboveMid
+    sellStep3A := false
+
+if buyStep3A and (m15Count - buyStep3A_at) > m5Timeout
+    buyStep3A := false
+if sellStep3A and (m15Count - sellStep3A_at) > m5Timeout
+    sellStep3A := false
+
+// ============================================================================
+// ชุด B — Early
+// ============================================================================
+bool priceCrossUpSlow = usePrice > useSlow and prevPrice <= prevSlow
+bool priceCrossDnSlow = usePrice < useSlow and prevPrice >= prevSlow
+
+var bool buyB_step1     = false
+var bool sellB_step1    = false
+var bool buyArmedB      = false
+var bool sellArmedB     = false
+var int  buyArmedB_at   = 0
+var int  sellArmedB_at  = 0
+var bool buyStep3B      = false
+var bool sellStep3B     = false
+var int  buyStep3B_at   = 0
+var int  sellStep3B_at  = 0
+
+if usePrice > useMid
+    buyB_step1 := false
+    buyArmedB  := false
+    buyStep3B  := false
+if usePrice < useMid
+    sellB_step1 := false
+    sellArmedB  := false
+    sellStep3B  := false
+
+if buyArmedB and (h1Count - buyArmedB_at) > armedTimeout
+    buyArmedB := false
+    buyStep3B := false
+if sellArmedB and (h1Count - sellArmedB_at) > armedTimeout
+    sellArmedB := false
+    sellStep3B := false
+
+if usePrice < useMid and usePrice > earlyMinRsi and priceCrossUpSlow
+    buyB_step1 := true
+if usePrice > useMid and usePrice < (100 - earlyMinRsi) and priceCrossDnSlow
+    sellB_step1 := true
+
+if buyB_step1 and emaTouchBuy
+    buyArmedB    := true
+    buyArmedB_at := h1Count
+if sellB_step1 and emaTouchSell
+    sellArmedB    := true
+    sellArmedB_at := h1Count
+
+if buyArmedB and m15AboveMid and m15CrossDnSlow and not buyStep3B
+    buyStep3B    := true
+    buyStep3B_at := m15Count
+if sellArmedB and m15BelowMid and m15CrossUpSlow and not sellStep3B
+    sellStep3B    := true
+    sellStep3B_at := m15Count
+
+if buyStep3B and (m15Count - buyStep3B_at) > m5Timeout
+    buyStep3B := false
+if sellStep3B and (m15Count - sellStep3B_at) > m5Timeout
+    sellStep3B := false
+
+// ============================================================================
+// PB SIGNAL
+// ============================================================================
+bool pbBuyA  = inSession and enableA and buyBias  and isTrending and buyStep3A  and m5CrossUpSlow
+bool pbSellA = inSession and enableA and sellBias and isTrending and sellStep3A and m5CrossDnSlow
+bool pbBuyB  = inSession and enableB and buyBias  and isTrending and buyStep3B  and m5CrossUpSlow
+bool pbSellB = inSession and enableB and sellBias and isTrending and sellStep3B and m5CrossDnSlow
+
+if pbBuyA or pbBuyB
+    buyArmedA  := false
+    buyArmedB  := false
+    buyStep3A  := false
+    buyStep3B  := false
+    buyB_step1 := false
+if pbSellA or pbSellB
+    sellArmedA  := false
+    sellArmedB  := false
+    sellStep3A  := false
+    sellStep3B  := false
+    sellB_step1 := false
+
+bool newBuy  = pbBuyA  or pbBuyB
+bool newSell = pbSellA or pbSellB
+
+// ============================================================================
+// SWING SL + TP + POSITION SIZING
+// ============================================================================
+float swingLo = ta.lowest(low,  swingLen)
+float swingHi = ta.highest(high, swingLen)
+
+float buySL   = swingLo - slBuffer
+float sellSL  = swingHi + slBuffer
+
+float buySlDist  = math.abs(close - buySL)
+float sellSlDist = math.abs(sellSL - close)
+
+float buyTP  = close + buySlDist  * rrRatio
+float sellTP = close - sellSlDist * rrRatio
+
+float riskAmt = strategy.equity * riskPct / 100
+
+float tickVal  = syminfo.pointvalue * syminfo.mintick
+float buyQty   = buySlDist  > 0 and tickVal > 0 ? math.max(riskAmt / (buySlDist  / syminfo.mintick * tickVal), 0.01) : na
+float sellQty  = sellSlDist > 0 and tickVal > 0 ? math.max(riskAmt / (sellSlDist / syminfo.mintick * tickVal), 0.01) : na
+
+// ============================================================================
+// STRATEGY EXECUTION
+// ============================================================================
+if newBuy and not na(buyQty) and buySlDist > 0
+    strategy.entry("PB Buy", strategy.long, qty=buyQty)
+    strategy.exit("PB Buy SL/TP", "PB Buy", stop=buySL, limit=buyTP)
+
+if newSell and not na(sellQty) and sellSlDist > 0
+    strategy.entry("PB Sell", strategy.short, qty=sellQty)
+    strategy.exit("PB Sell SL/TP", "PB Sell", stop=sellSL, limit=sellTP)
+
+// ============================================================================
+// PLOTS
+// ============================================================================
+plot(showEmas  ? useEma14 : na, "H1 EMA14", color=color.new(#42a5f5, 0), linewidth=2)
+plot(showEmas  ? useEma60 : na, "H1 EMA60", color=color.new(#ab47bc, 0), linewidth=2)
+plot(showH4Ema ? h4Ema    : na, "H4 EMA60", color=color.new(#ffb300, 0), linewidth=2)
+
+bool inLong  = strategy.position_size > 0
+bool inShort = strategy.position_size < 0
+plot(showSlTp and inLong  ? buySL  : na, "Buy SL",  color=color.new(#ef5350, 0), linewidth=1, style=plot.style_linebr)
+plot(showSlTp and inLong  ? buyTP  : na, "Buy TP",  color=color.new(#26a69a, 0), linewidth=1, style=plot.style_linebr)
+plot(showSlTp and inShort ? sellSL : na, "Sell SL", color=color.new(#ef5350, 0), linewidth=1, style=plot.style_linebr)
+plot(showSlTp and inShort ? sellTP : na, "Sell TP", color=color.new(#26a69a, 0), linewidth=1, style=plot.style_linebr)
+
+bgcolor(buyBias  ? color.new(#26a69a, 92) : na, title="Buy bias bg")
+bgcolor(sellBias ? color.new(#ef5350, 92) : na, title="Sell bias bg")
+
+plotshape(newBuy,  title="PB Buy",  style=shape.triangleup,   location=location.belowbar, color=#26a69a, size=size.small)
+plotshape(newSell, title="PB Sell", style=shape.triangledown, location=location.abovebar, color=#ef5350, size=size.small)
