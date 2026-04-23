@@ -126,10 +126,8 @@ bool sellBias = h4Close < h4Ema
                     ta.sma(ta.rsi(close, rsiPeriod), slowPer))[1]],
      lookahead=barmerge.lookahead_on)
 
-bool emaTouchBuy  = (touch14 and h1Low <= h1EmaF and h1Close > h1EmaF) or
-                    (touch60 and h1Low <= h1EmaS and h1Close > h1EmaS)
-bool emaTouchSell = (touch14 and h1High >= h1EmaF and h1Close < h1EmaF) or
-                    (touch60 and h1High >= h1EmaS and h1Close < h1EmaS)
+bool emaTouchBuy  = (touch14 and h1Low <= h1EmaF and h1Close > h1EmaF) or (touch60 and h1Low <= h1EmaS and h1Close > h1EmaS)
+bool emaTouchSell = (touch14 and h1High >= h1EmaF and h1Close < h1EmaF) or (touch60 and h1High >= h1EmaS and h1Close < h1EmaS)
 
 // H1 bar boundary
 int  h1BarTime = request.security(syminfo.tickerid, "60", time, lookahead=barmerge.lookahead_off)
