@@ -209,13 +209,13 @@ if sellArmedA and (h1Count - sellArmedA_at) >= armedTimeout
     sellArmedA := false
     sellStep3A := false
 
-// Step 1→2: EMA touch+bounce → armed (gate: H1 boundary only)
-if newH1Bar and tdiBuyA and emaTouchBuy
+// Step 1→2: EMA touch+bounce → armed (gate: H1 boundary only, no refresh)
+if newH1Bar and not buyArmedA and tdiBuyA and emaTouchBuy
     buyArmedA    := true
-    buyArmedA_at := h1Count
-if newH1Bar and tdiSellA and emaTouchSell
+    buyArmedA_at := h1Count - 1
+if newH1Bar and not sellArmedA and tdiSellA and emaTouchSell
     sellArmedA    := true
-    sellArmedA_at := h1Count
+    sellArmedA_at := h1Count - 1
 
 // Step 3 (PB A): M15 price < mid — state check, activate/deactivate
 if buyArmedA and m15BelowMid and not buyStep3A
@@ -266,13 +266,13 @@ if newH1Bar and usePrice < useMid and usePrice > earlyMinRsi and priceCrossUpSlo
 if newH1Bar and usePrice > useMid and usePrice < (100 - earlyMinRsi) and priceCrossDnSlow
     sellB_step1 := true
 
-// Step 2 ชุด B: EMA touch+bounce → armed (gate: H1 boundary)
-if newH1Bar and buyB_step1 and emaTouchBuy
+// Step 2 ชุด B: EMA touch+bounce → armed (gate: H1 boundary, no refresh)
+if newH1Bar and not buyArmedB and buyB_step1 and emaTouchBuy
     buyArmedB    := true
-    buyArmedB_at := h1Count
-if newH1Bar and sellB_step1 and emaTouchSell
+    buyArmedB_at := h1Count - 1
+if newH1Bar and not sellArmedB and sellB_step1 and emaTouchSell
     sellArmedB    := true
-    sellArmedB_at := h1Count
+    sellArmedB_at := h1Count - 1
 
 // Step 3 (PB B): M15 above mid + cross DN slow — no reset once latched
 if buyArmedB and m15AboveMid and m15CrossDnSlow and not buyStep3B
