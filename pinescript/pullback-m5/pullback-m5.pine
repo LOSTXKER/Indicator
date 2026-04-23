@@ -114,10 +114,10 @@ bool sellBias = h4Close < h4Ema
 
 // Events (EMA touch, TDI cross) → confirmed bar, no repaint
 // Raw H1 OHLC + EMA fetched unconditionally → touch logic computed outside
-[h1Low, h1High, h1Close, h1EmaF, h1EmaS,
+[h1Low, h1High, h1Close, h1Open, h1EmaF, h1EmaS,
  priceCrossUpSlow, priceCrossDnSlow] = request.security(
      syminfo.tickerid, "60",
-     [low[1], high[1], close[1],
+     [low[1], high[1], close[1], open[1],
       ta.ema(close, emaFastLen)[1],
       ta.ema(close, emaSlowLen)[1],
       ta.crossover(ta.sma(ta.rsi(close, rsiPeriod), pricePer),
@@ -224,6 +224,14 @@ if not tdiSellA
     sellArmedA := false
     sellStep3A := false
 
+// Cancel if H1 bar after first closes wrong color (buy=red, sell=green)
+if newH1Bar and buyArmedA and (h1Count - buyArmedA_at) > 1 and h1Close < h1Open
+    buyArmedA := false
+    buyStep3A := false
+if newH1Bar and sellArmedA and (h1Count - sellArmedA_at) > 1 and h1Close > h1Open
+    sellArmedA := false
+    sellStep3A := false
+
 // Armed timeout (H1 bars)
 if buyArmedA and (h1Count - buyArmedA_at) >= armedTimeout
     buyArmedA := false
@@ -275,6 +283,16 @@ if usePrice < useMid
     sellB_step1 := false
     sellArmedB  := false
     sellStep3B  := false
+    m15CrossUpPending := false
+
+// Cancel if H1 bar after first closes wrong color ชุด B
+if newH1Bar and buyArmedB and (h1Count - buyArmedB_at) > 1 and h1Close < h1Open
+    buyArmedB := false
+    buyStep3B := false
+    m15CrossDnPending := false
+if newH1Bar and sellArmedB and (h1Count - sellArmedB_at) > 1 and h1Close > h1Open
+    sellArmedB := false
+    sellStep3B := false
     m15CrossUpPending := false
 
 // Armed timeout ชุด B (H1 bars)
