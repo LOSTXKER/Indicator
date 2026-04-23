@@ -113,18 +113,22 @@ bool sellBias = h4Close < h4Ema
      lookahead=barmerge.lookahead_off)
 
 // Events (EMA touch, TDI cross) → confirmed bar, no repaint
-[emaTouchBuy, emaTouchSell,
+// EMA touch computed unconditionally → apply touch14/touch60 filter outside
+[touchBuyE14, touchBuyE60, touchSellE14, touchSellE60,
  priceCrossUpSlow, priceCrossDnSlow] = request.security(
      syminfo.tickerid, "60",
-     [((touch14 and low <= ta.ema(close, emaFastLen) and close > ta.ema(close, emaFastLen)) or
-       (touch60 and low <= ta.ema(close, emaSlowLen) and close > ta.ema(close, emaSlowLen)))[1],
-      ((touch14 and high >= ta.ema(close, emaFastLen) and close < ta.ema(close, emaFastLen)) or
-       (touch60 and high >= ta.ema(close, emaSlowLen) and close < ta.ema(close, emaSlowLen)))[1],
+     [(low <= ta.ema(close, emaFastLen) and close > ta.ema(close, emaFastLen))[1],
+      (low <= ta.ema(close, emaSlowLen) and close > ta.ema(close, emaSlowLen))[1],
+      (high >= ta.ema(close, emaFastLen) and close < ta.ema(close, emaFastLen))[1],
+      (high >= ta.ema(close, emaSlowLen) and close < ta.ema(close, emaSlowLen))[1],
       ta.crossover(ta.sma(ta.rsi(close, rsiPeriod), pricePer),
                    ta.sma(ta.rsi(close, rsiPeriod), slowPer))[1],
       ta.crossunder(ta.sma(ta.rsi(close, rsiPeriod), pricePer),
                     ta.sma(ta.rsi(close, rsiPeriod), slowPer))[1]],
      lookahead=barmerge.lookahead_on)
+
+bool emaTouchBuy  = (touch14 and touchBuyE14)  or (touch60 and touchBuyE60)
+bool emaTouchSell = (touch14 and touchSellE14) or (touch60 and touchSellE60)
 
 // H1 bar boundary
 int  h1BarTime = request.security(syminfo.tickerid, "60", time, lookahead=barmerge.lookahead_off)
