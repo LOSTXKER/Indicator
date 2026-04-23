@@ -15,7 +15,8 @@
 //   Step 4 : M5 TDI price cross UP slow  →  PB B!
 //
 // H4 bias : กำหนดทิศ buy/sell (close vs EMA60)
-// Designed: ดูบน M5 chart (H1+M15 ดึงผ่าน MTF, ไม่ repaint)
+// Designed: ดูบน M5 chart (H1+M15 ดึงผ่าน MTF)
+// States (TDI level, EMA dist) = realtime / Events (touch, cross) = confirmed
 //@version=6
 indicator("LX Pullback M5 (EMA14/60 + TDI)", shorttitle="LX PB M5", overlay=true,
      max_bars_back=500, max_labels_count=500, max_boxes_count=500, max_lines_count=500)
@@ -97,21 +98,25 @@ bool buyBias  = h4Close > h4Ema
 bool sellBias = h4Close < h4Ema
 
 // ============================================================================
-// H1 DATA — confirmed bar (no repaint)
+// H1 DATA — states: realtime / events: confirmed
 // ============================================================================
-// Inline expressions → computed ON H1 TF; [1] + lookahead_on = last closed H1 bar
+// States (TDI levels, EMA dist) → realtime, no lag
 [usePrice, useMid, useSlow, useEmaDist,
- tdiBuyA, tdiSellA,
- emaTouchBuy, emaTouchSell,
+ tdiBuyA, tdiSellA] = request.security(
+     syminfo.tickerid, "60",
+     [ta.sma(ta.rsi(close, rsiPeriod), pricePer),
+      ta.sma(ta.rsi(close, rsiPeriod), bandLen),
+      ta.sma(ta.rsi(close, rsiPeriod), slowPer),
+      math.abs(ta.ema(close, emaFastLen) - ta.ema(close, emaSlowLen)),
+      ta.sma(ta.rsi(close, rsiPeriod), pricePer) > ta.sma(ta.rsi(close, rsiPeriod), bandLen),
+      ta.sma(ta.rsi(close, rsiPeriod), pricePer) < ta.sma(ta.rsi(close, rsiPeriod), bandLen)],
+     lookahead=barmerge.lookahead_off)
+
+// Events (EMA touch, TDI cross) → confirmed bar, no repaint
+[emaTouchBuy, emaTouchSell,
  priceCrossUpSlow, priceCrossDnSlow] = request.security(
      syminfo.tickerid, "60",
-     [ta.sma(ta.rsi(close, rsiPeriod), pricePer)[1],
-      ta.sma(ta.rsi(close, rsiPeriod), bandLen)[1],
-      ta.sma(ta.rsi(close, rsiPeriod), slowPer)[1],
-      math.abs(ta.ema(close, emaFastLen) - ta.ema(close, emaSlowLen))[1],
-      (ta.sma(ta.rsi(close, rsiPeriod), pricePer) > ta.sma(ta.rsi(close, rsiPeriod), bandLen))[1],
-      (ta.sma(ta.rsi(close, rsiPeriod), pricePer) < ta.sma(ta.rsi(close, rsiPeriod), bandLen))[1],
-      ((touch14 and low <= ta.ema(close, emaFastLen) and close > ta.ema(close, emaFastLen)) or
+     [((touch14 and low <= ta.ema(close, emaFastLen) and close > ta.ema(close, emaFastLen)) or
        (touch60 and low <= ta.ema(close, emaSlowLen) and close > ta.ema(close, emaSlowLen)))[1],
       ((touch14 and high >= ta.ema(close, emaFastLen) and close < ta.ema(close, emaFastLen)) or
        (touch60 and high >= ta.ema(close, emaSlowLen) and close < ta.ema(close, emaSlowLen)))[1],
@@ -129,14 +134,19 @@ if newH1Bar
     h1Count += 1
 
 // ============================================================================
-// M15 DATA — confirmed bar (no repaint)
+// M15 DATA — states: realtime / events: confirmed
 // ============================================================================
-// Inline expressions → computed ON M15 TF; [1] + lookahead_on = last closed M15 bar
-[m15AboveMid, m15BelowMid, m15CrossUpSlowRaw, m15CrossDnSlowRaw] = request.security(
+// States (above/below mid) → realtime, no lag
+[m15AboveMid, m15BelowMid] = request.security(
      syminfo.tickerid, "15",
-     [(ta.sma(ta.rsi(close, rsiPeriod), pricePer) > ta.sma(ta.rsi(close, rsiPeriod), bandLen))[1],
-      (ta.sma(ta.rsi(close, rsiPeriod), pricePer) < ta.sma(ta.rsi(close, rsiPeriod), bandLen))[1],
-      ta.crossover(ta.sma(ta.rsi(close, rsiPeriod), pricePer),
+     [ta.sma(ta.rsi(close, rsiPeriod), pricePer) > ta.sma(ta.rsi(close, rsiPeriod), bandLen),
+      ta.sma(ta.rsi(close, rsiPeriod), pricePer) < ta.sma(ta.rsi(close, rsiPeriod), bandLen)],
+     lookahead=barmerge.lookahead_off)
+
+// Events (cross slow) → confirmed bar, no repaint
+[m15CrossUpSlowRaw, m15CrossDnSlowRaw] = request.security(
+     syminfo.tickerid, "15",
+     [ta.crossover(ta.sma(ta.rsi(close, rsiPeriod), pricePer),
                    ta.sma(ta.rsi(close, rsiPeriod), slowPer))[1],
       ta.crossunder(ta.sma(ta.rsi(close, rsiPeriod), pricePer),
                     ta.sma(ta.rsi(close, rsiPeriod), slowPer))[1]],
@@ -145,9 +155,17 @@ if newH1Bar
 // M15 bar boundary
 int  m15BarTime = request.security(syminfo.tickerid, "15", time, lookahead=barmerge.lookahead_off)
 bool newM15Bar  = ta.change(m15BarTime) != 0
-// M15 cross = edge event → fire once at M15 boundary only
+// M15 cross = edge event → fire once at M15 boundary
 bool m15CrossUpSlow = newM15Bar and m15CrossUpSlowRaw
 bool m15CrossDnSlow = newM15Bar and m15CrossDnSlowRaw
+
+// M15 cross pending latch — จำ cross event รอจนชุด B ใช้
+var bool m15CrossDnPending = false
+var bool m15CrossUpPending = false
+if m15CrossDnSlow
+    m15CrossDnPending := true
+if m15CrossUpSlow
+    m15CrossUpPending := true
 
 // ============================================================================
 // M5 TDI — LOCAL (computed on chart data)
@@ -247,18 +265,22 @@ if usePrice > useMid
     buyB_step1 := false
     buyArmedB  := false
     buyStep3B  := false
+    m15CrossDnPending := false
 if usePrice < useMid
     sellB_step1 := false
     sellArmedB  := false
     sellStep3B  := false
+    m15CrossUpPending := false
 
 // Armed timeout ชุด B (H1 bars)
 if buyArmedB and (h1Count - buyArmedB_at) >= armedTimeout
     buyArmedB := false
     buyStep3B := false
+    m15CrossDnPending := false
 if sellArmedB and (h1Count - sellArmedB_at) >= armedTimeout
     sellArmedB := false
     sellStep3B := false
+    m15CrossUpPending := false
 
 // Step 1 ชุด B: price < mid + cross slow ขึ้น + RSI filter (gate: H1 boundary)
 if newH1Bar and usePrice < useMid and usePrice > earlyMinRsi and priceCrossUpSlow
@@ -274,11 +296,13 @@ if newH1Bar and not sellArmedB and sellB_step1 and emaTouchSell
     sellArmedB    := true
     sellArmedB_at := h1Count - 1
 
-// Step 3 (PB B): M15 above mid + cross DN slow — no reset once latched
-if buyArmedB and m15AboveMid and m15CrossDnSlow and not buyStep3B
+// Step 3 (PB B): M15 above mid + cross DN slow pending — latch
+if buyArmedB and m15AboveMid and m15CrossDnPending and not buyStep3B
     buyStep3B := true
-if sellArmedB and m15BelowMid and m15CrossUpSlow and not sellStep3B
+    m15CrossDnPending := false
+if sellArmedB and m15BelowMid and m15CrossUpPending and not sellStep3B
     sellStep3B := true
+    m15CrossUpPending := false
 
 // ============================================================================
 // STEP 4: M5 TDI cross → PB SIGNAL
@@ -295,12 +319,14 @@ if pbBuyA or pbBuyB
     buyStep3A  := false
     buyStep3B  := false
     buyB_step1 := false
+    m15CrossDnPending := false
 if pbSellA or pbSellB
     sellArmedA  := false
     sellArmedB  := false
     sellStep3A  := false
     sellStep3B  := false
     sellB_step1 := false
+    m15CrossUpPending := false
 
 // Fire-once per M5 bar (A takes priority over B)
 var int lastBuyBI  = -1
