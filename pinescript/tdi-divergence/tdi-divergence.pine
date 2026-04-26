@@ -1,0 +1,323 @@
+// ============================================================================
+// TDI Divergence & Convergence
+// ============================================================================
+// Detects divergence AND convergence between Price and TDI.
+// Divergence  = Price กับ TDI สวนทาง → สัญญาณกลับตัว/ไปต่อ
+// Convergence = Price กับ TDI ไปทางเดียวกัน → ยืนยันเทรนด์
+//
+// TDI base: RSI → Bollinger bands + Fast/Slow MA (Goldminds variant)
+// ============================================================================
+
+//@version=6
+indicator("TDI Divergence & Convergence", shorttitle="TDI D/C",
+     overlay=false,
+     max_labels_count=500,
+     max_lines_count=500)
+
+// ============================================================================
+// TDI SETTINGS
+// ============================================================================
+string GRP_TDI = "TDI SETTINGS"
+int    rsiPeriod     = input.int(13, "RSI Period",     minval=1, group=GRP_TDI)
+int    bandLength    = input.int(31, "Band Length",     minval=1, group=GRP_TDI)
+int    lengthrsipl   = input.int(1,  "Fast MA on RSI", minval=1, group=GRP_TDI,
+     tooltip="1 = ค่า RSI ตรงๆ\nเพิ่มขึ้น = smooth มากขึ้น")
+int    lengthtradesl = input.int(9,  "Slow MA on RSI", minval=1, group=GRP_TDI)
+
+// ============================================================================
+// DIVERGENCE SETTINGS
+// ============================================================================
+string GRP_DIV = "DIVERGENCE"
+string divSrcChoice = input.string("Fast MA", "Divergence Source",
+     options=["Fast MA", "Slow MA", "Raw RSI"], group=GRP_DIV,
+     tooltip="เลือกเส้น TDI ที่ใช้เทียบกับ Price\nFast MA (default) = RSI เมื่อ period=1")
+int    pivotLeft  = input.int(5, "Pivot Lookback Left",  minval=1, maxval=20, group=GRP_DIV)
+int    pivotRight = input.int(5, "Pivot Lookback Right", minval=1, maxval=20, group=GRP_DIV,
+     tooltip="ยิ่งมาก = ยืนยันแน่นขึ้น แต่ delay มากขึ้น")
+int    maxBars    = input.int(60, "Max Bars Between Pivots", minval=10, maxval=200, group=GRP_DIV,
+     tooltip="ระยะ bar สูงสุดระหว่าง pivot 2 จุด\nป้องกัน divergence ที่ยืดเกินไป")
+bool   showRegular = input.bool(true,  "Regular Divergence", group=GRP_DIV)
+bool   showHidden  = input.bool(true,  "Hidden Divergence",  group=GRP_DIV)
+bool   showConv    = input.bool(false, "Convergence",        group=GRP_DIV,
+     tooltip="Price กับ TDI ไปทิศเดียวกัน = ยืนยันเทรนด์\nBullish: Higher Low ทั้งคู่\nBearish: Lower High ทั้งคู่")
+
+// ============================================================================
+// DISPLAY
+// ============================================================================
+string GRP_DISP = "DISPLAY"
+bool   showTdiLines   = input.bool(true, "Divergence Lines on TDI",   group=GRP_DISP)
+bool   showPriceLines = input.bool(true, "Divergence Lines on Price", group=GRP_DISP)
+bool   showLabels     = input.bool(true, "Show Labels",               group=GRP_DISP)
+color  bullColor = input.color(#26a69a, "Bullish Color", group=GRP_DISP)
+color  bearColor = input.color(#ef5350, "Bearish Color", group=GRP_DISP)
+color  convColor = input.color(#2196f3, "Convergence Color", group=GRP_DISP)
+int    lineWidth = input.int(2, "Line Width", minval=1, maxval=5, group=GRP_DISP)
+
+// ============================================================================
+// TDI CALCULATION
+// ============================================================================
+float r      = ta.rsi(close, rsiPeriod)
+float ma     = ta.sma(r, bandLength)
+float offs   = 1.6185 * ta.stdev(r, bandLength)
+float up     = ma + offs
+float dn     = ma - offs
+float mid    = (up + dn) / 2
+float fastMA = ta.sma(r, lengthrsipl)
+float slowMA = ta.sma(r, lengthtradesl)
+
+float divSrc = switch divSrcChoice
+    "Fast MA"  => fastMA
+    "Slow MA"  => slowMA
+    "Raw RSI"  => r
+    => fastMA
+
+// ============================================================================
+// TDI PLOTS
+// ============================================================================
+hline(20, "Extremely Oversold",   color=color.new(color.gray, 60))
+hline(30, "Oversold",             color=color.new(color.gray, 60))
+hline(50, "Midline",              color=color.new(color.gray, 40), linestyle=hline.style_solid)
+hline(70, "Overbought",           color=color.new(color.gray, 60))
+hline(80, "Extremely Overbought", color=color.new(color.gray, 60))
+
+plot(up,     "Upper Band",      color=#2962ff,  linewidth=4)
+plot(dn,     "Lower Band",      color=#2962ff,  linewidth=4)
+plot(mid,    "Middle of Bands", color=#f57f17,  linewidth=4)
+plot(slowMA, "Slow MA",         color=#008000,  linewidth=4)
+plot(fastMA, "Fast MA",         color=#ab0506,  linewidth=3)
+
+// ============================================================================
+// PIVOT DETECTION
+// ============================================================================
+// ใช้ Price pivot เป็นจุดอ้างอิงสำหรับตรวจจับ divergence
+// เส้นบน Price ลากจาก price pivot — เส้นบน TDI ลากจากสวิงจริงของ divSrc
+float pricePH = ta.pivothigh(high, pivotLeft, pivotRight)
+float pricePL = ta.pivotlow(low,   pivotLeft, pivotRight)
+
+// TDI value at the same bar as the price pivot
+float tdiAtPivot = divSrc[pivotRight]
+
+int pivotBar = bar_index - pivotRight
+
+// ============================================================================
+// TDI SWING FINDERS (for drawing only — detection logic unchanged)
+// ============================================================================
+findTdiSwingHi() =>
+    float best = divSrc[0]
+    int bestBi = bar_index
+    for i = 1 to pivotLeft + pivotRight
+        if divSrc[i] > best
+            best := divSrc[i]
+            bestBi := bar_index - i
+    [best, bestBi]
+
+findTdiSwingLo() =>
+    float best = divSrc[0]
+    int bestBi = bar_index
+    for i = 1 to pivotLeft + pivotRight
+        if divSrc[i] < best
+            best := divSrc[i]
+            bestBi := bar_index - i
+    [best, bestBi]
+
+// ============================================================================
+// PIVOT HISTORY
+// ============================================================================
+var float prevPriceHi    = na
+var int   prevPriceHi_bi = na
+var float prevTdiHi      = na
+
+var float prevPriceLo    = na
+var int   prevPriceLo_bi = na
+var float prevTdiLo      = na
+
+var float prevTdiSwingHi      = na
+var int   prevTdiSwingHi_bi   = na
+var float prevTdiSwingLo      = na
+var int   prevTdiSwingLo_bi   = na
+
+// ============================================================================
+// DIVERGENCE DETECTION & DRAWING
+// ============================================================================
+bool regBullDiv  = false
+bool regBearDiv  = false
+bool hidBullDiv  = false
+bool hidBearDiv  = false
+bool bullConv    = false
+bool bearConv    = false
+
+// --- Bullish divergence (pivot lows) ---
+[tdiSwingLoVal, tdiSwingLoBi] = findTdiSwingLo()
+if not na(pricePL)
+    if not na(prevPriceLo) and not na(prevTdiLo)
+        int barsBetween = pivotBar - prevPriceLo_bi
+        if barsBetween <= maxBars and barsBetween > 0
+            // Regular Bullish: price lower low, TDI higher low
+            if showRegular and pricePL < prevPriceLo and tdiAtPivot > prevTdiLo
+                regBullDiv := true
+                if showTdiLines
+                    line.new(prevTdiSwingLo_bi, prevTdiSwingLo, tdiSwingLoBi, tdiSwingLoVal,
+                         color=bullColor, width=lineWidth, style=line.style_solid)
+                if showPriceLines
+                    line.new(prevPriceLo_bi, prevPriceLo, pivotBar, pricePL,
+                         color=bullColor, width=lineWidth, style=line.style_solid,
+                         force_overlay=true)
+                if showLabels
+                    label.new(tdiSwingLoBi, tdiSwingLoVal, "R.Div",
+                         color=bullColor, textcolor=color.white,
+                         style=label.style_label_up, size=size.small)
+                    label.new(pivotBar, pricePL, "R.Div",
+                         color=bullColor, textcolor=color.white,
+                         style=label.style_label_up, size=size.small,
+                         force_overlay=true)
+
+            // Hidden Bullish: price higher low, TDI lower low
+            if showHidden and pricePL > prevPriceLo and tdiAtPivot < prevTdiLo
+                hidBullDiv := true
+                if showTdiLines
+                    line.new(prevTdiSwingLo_bi, prevTdiSwingLo, tdiSwingLoBi, tdiSwingLoVal,
+                         color=bullColor, width=lineWidth, style=line.style_dashed)
+                if showPriceLines
+                    line.new(prevPriceLo_bi, prevPriceLo, pivotBar, pricePL,
+                         color=bullColor, width=lineWidth, style=line.style_dashed,
+                         force_overlay=true)
+                if showLabels
+                    label.new(tdiSwingLoBi, tdiSwingLoVal, "H.Div",
+                         color=bullColor, textcolor=color.white,
+                         style=label.style_label_up, size=size.small)
+                    label.new(pivotBar, pricePL, "H.Div",
+                         color=bullColor, textcolor=color.white,
+                         style=label.style_label_up, size=size.small,
+                         force_overlay=true)
+
+            // Bullish Convergence: price higher low, TDI higher low
+            if showConv and pricePL > prevPriceLo and tdiAtPivot > prevTdiLo
+                bullConv := true
+                if showTdiLines
+                    line.new(prevTdiSwingLo_bi, prevTdiSwingLo, tdiSwingLoBi, tdiSwingLoVal,
+                         color=convColor, width=lineWidth, style=line.style_dotted)
+                if showPriceLines
+                    line.new(prevPriceLo_bi, prevPriceLo, pivotBar, pricePL,
+                         color=convColor, width=lineWidth, style=line.style_dotted,
+                         force_overlay=true)
+                if showLabels
+                    label.new(tdiSwingLoBi, tdiSwingLoVal, "Conv",
+                         color=convColor, textcolor=color.white,
+                         style=label.style_label_up, size=size.small)
+                    label.new(pivotBar, pricePL, "Conv",
+                         color=convColor, textcolor=color.white,
+                         style=label.style_label_up, size=size.small,
+                         force_overlay=true)
+
+    prevPriceLo       := pricePL
+    prevPriceLo_bi    := pivotBar
+    prevTdiLo         := tdiAtPivot
+    prevTdiSwingLo    := tdiSwingLoVal
+    prevTdiSwingLo_bi := tdiSwingLoBi
+
+// --- Bearish divergence (pivot highs) ---
+[tdiSwingHiVal, tdiSwingHiBi] = findTdiSwingHi()
+if not na(pricePH)
+    if not na(prevPriceHi) and not na(prevTdiHi)
+        int barsBetween = pivotBar - prevPriceHi_bi
+        if barsBetween <= maxBars and barsBetween > 0
+            // Regular Bearish: price higher high, TDI lower high
+            if showRegular and pricePH > prevPriceHi and tdiAtPivot < prevTdiHi
+                regBearDiv := true
+                if showTdiLines
+                    line.new(prevTdiSwingHi_bi, prevTdiSwingHi, tdiSwingHiBi, tdiSwingHiVal,
+                         color=bearColor, width=lineWidth, style=line.style_solid)
+                if showPriceLines
+                    line.new(prevPriceHi_bi, prevPriceHi, pivotBar, pricePH,
+                         color=bearColor, width=lineWidth, style=line.style_solid,
+                         force_overlay=true)
+                if showLabels
+                    label.new(tdiSwingHiBi, tdiSwingHiVal, "R.Div",
+                         color=bearColor, textcolor=color.white,
+                         style=label.style_label_down, size=size.small)
+                    label.new(pivotBar, pricePH, "R.Div",
+                         color=bearColor, textcolor=color.white,
+                         style=label.style_label_down, size=size.small,
+                         force_overlay=true)
+
+            // Hidden Bearish: price lower high, TDI higher high
+            if showHidden and pricePH < prevPriceHi and tdiAtPivot > prevTdiHi
+                hidBearDiv := true
+                if showTdiLines
+                    line.new(prevTdiSwingHi_bi, prevTdiSwingHi, tdiSwingHiBi, tdiSwingHiVal,
+                         color=bearColor, width=lineWidth, style=line.style_dashed)
+                if showPriceLines
+                    line.new(prevPriceHi_bi, prevPriceHi, pivotBar, pricePH,
+                         color=bearColor, width=lineWidth, style=line.style_dashed,
+                         force_overlay=true)
+                if showLabels
+                    label.new(tdiSwingHiBi, tdiSwingHiVal, "H.Div",
+                         color=bearColor, textcolor=color.white,
+                         style=label.style_label_down, size=size.small)
+                    label.new(pivotBar, pricePH, "H.Div",
+                         color=bearColor, textcolor=color.white,
+                         style=label.style_label_down, size=size.small,
+                         force_overlay=true)
+
+            // Bearish Convergence: price lower high, TDI lower high
+            if showConv and pricePH < prevPriceHi and tdiAtPivot < prevTdiHi
+                bearConv := true
+                if showTdiLines
+                    line.new(prevTdiSwingHi_bi, prevTdiSwingHi, tdiSwingHiBi, tdiSwingHiVal,
+                         color=convColor, width=lineWidth, style=line.style_dotted)
+                if showPriceLines
+                    line.new(prevPriceHi_bi, prevPriceHi, pivotBar, pricePH,
+                         color=convColor, width=lineWidth, style=line.style_dotted,
+                         force_overlay=true)
+                if showLabels
+                    label.new(tdiSwingHiBi, tdiSwingHiVal, "Conv",
+                         color=convColor, textcolor=color.white,
+                         style=label.style_label_down, size=size.small)
+                    label.new(pivotBar, pricePH, "Conv",
+                         color=convColor, textcolor=color.white,
+                         style=label.style_label_down, size=size.small,
+                         force_overlay=true)
+
+    prevPriceHi       := pricePH
+    prevPriceHi_bi    := pivotBar
+    prevTdiHi         := tdiAtPivot
+    prevTdiSwingHi    := tdiSwingHiVal
+    prevTdiSwingHi_bi := tdiSwingHiBi
+
+// ============================================================================
+// DIVERGENCE MARKERS ON TDI (small shapes for quick scan)
+// ============================================================================
+plotshape(regBullDiv, "Regular Bullish Div", shape.triangleup,
+     location.bottom, bullColor, size=size.tiny, offset=-pivotRight)
+plotshape(regBearDiv, "Regular Bearish Div", shape.triangledown,
+     location.top, bearColor, size=size.tiny, offset=-pivotRight)
+plotshape(hidBullDiv, "Hidden Bullish Div", shape.diamond,
+     location.bottom, bullColor, size=size.tiny, offset=-pivotRight)
+plotshape(hidBearDiv, "Hidden Bearish Div", shape.diamond,
+     location.top, bearColor, size=size.tiny, offset=-pivotRight)
+plotshape(bullConv, "Bullish Convergence", shape.circle,
+     location.bottom, convColor, size=size.tiny, offset=-pivotRight)
+plotshape(bearConv, "Bearish Convergence", shape.circle,
+     location.top, convColor, size=size.tiny, offset=-pivotRight)
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+alertcondition(regBullDiv, title="Regular Bullish Divergence",
+     message="TDI Regular Bullish Divergence — {{ticker}} {{interval}} @ {{close}}")
+alertcondition(regBearDiv, title="Regular Bearish Divergence",
+     message="TDI Regular Bearish Divergence — {{ticker}} {{interval}} @ {{close}}")
+alertcondition(hidBullDiv, title="Hidden Bullish Divergence",
+     message="TDI Hidden Bullish Divergence — {{ticker}} {{interval}} @ {{close}}")
+alertcondition(hidBearDiv, title="Hidden Bearish Divergence",
+     message="TDI Hidden Bearish Divergence — {{ticker}} {{interval}} @ {{close}}")
+alertcondition(bullConv, title="Bullish Convergence",
+     message="TDI Bullish Convergence — {{ticker}} {{interval}} @ {{close}}")
+alertcondition(bearConv, title="Bearish Convergence",
+     message="TDI Bearish Convergence — {{ticker}} {{interval}} @ {{close}}")
+alertcondition(regBullDiv or regBearDiv or hidBullDiv or hidBearDiv,
+     title="Any Divergence",
+     message="TDI Divergence — {{ticker}} {{interval}} @ {{close}}")
+alertcondition(regBullDiv or regBearDiv or hidBullDiv or hidBearDiv or bullConv or bearConv,
+     title="Any Signal",
+     message="TDI Div/Conv — {{ticker}} {{interval}} @ {{close}}")
